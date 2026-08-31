@@ -124,6 +124,41 @@ def flat_ink_variant(master:Image.Image,fill:str,ink="#383633"):
 @app.get("/api/health")
 def health(): return {"ok":True,"mode":"free_only","paid_calls_blocked":True}
 
+@app.get("/api/providers/kakao/status")
+def kakao_status():
+    return {"configured":bool(os.getenv("KAKAO_REST_API_KEY")),"provider":"Kakao Daum Search","paid":False,"daily_refresh":True}
+
+@app.get("/api/trends/emoticons")
+async def emoticon_trends(refresh:bool=False):
+    """Daily Daum image-search digest. Images remain remote and always link to their source page."""
+    key=os.getenv("KAKAO_REST_API_KEY")
+    if not key:raise HTTPException(409,"KAKAO_REST_API_KEY가 설정되지 않았습니다.")
+    cache=DATA.parent/"kakao_emoticon_trends.json";today=datetime.now(timezone.utc).astimezone().date().isoformat()
+    if cache.exists() and not refresh:
+        try:
+            saved=json.loads(cache.read_text(encoding="utf-8"))
+            if saved.get("date")==today:return saved
+        except Exception:pass
+    queries=["신규 카카오 이모티콘","움직이는 이모티콘 출시"]
+    found=[];seen=set();headers={"Authorization":f"KakaoAK {key}"}
+    async with httpx.AsyncClient(timeout=25,follow_redirects=True) as client:
+        for query in queries:
+            response=await client.get("https://dapi.kakao.com/v2/search/image",headers=headers,params={"query":query,"sort":"recency","size":12})
+            if response.status_code==401:raise HTTPException(401,"카카오 REST API 키가 올바르지 않습니다.")
+            if response.status_code==429:raise HTTPException(429,"카카오 검색 API의 오늘 무료 쿼터를 모두 사용했습니다.")
+            if response.status_code>=400:raise HTTPException(response.status_code,"카카오 검색 API 오류: "+response.text[:300])
+            for item in response.json().get("documents",[]):
+                source=item.get("doc_url") or item.get("image_url")
+                thumb=item.get("thumbnail_url") or item.get("image_url")
+                if not source or not thumb or source in seen:continue
+                seen.add(source);found.append({
+                  "image":thumb,"source_url":source,"site":item.get("display_sitename") or "웹 검색",
+                  "published_at":item.get("datetime") or "","query":query,
+                  "width":item.get("width"),"height":item.get("height")})
+    payload={"date":today,"items":found[:12],"count":min(12,len(found)),"provider":"Kakao Daum Search API","cached":False,"notice":"검색 썸네일이며, 권리는 각 원저작자에게 있습니다."}
+    cache.write_text(json.dumps(payload,ensure_ascii=False,indent=2),encoding="utf-8")
+    return payload
+
 @app.get("/api/providers/status")
 def providers():
     return {"free_only":True,"auto_paid_fallback":False,"paid_budget_krw":0,

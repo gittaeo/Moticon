@@ -220,6 +220,12 @@ function Shell({ step, setStep, children }) {
   );
 }
 function Home({ start, openProject }) {
+  const [trends, setTrends] = useState([]), [trendState, setTrendState] = useState("loading");
+  useEffect(() => {
+    fetch("/api/trends/emoticons").then(apiJson).then((data) => {
+      setTrends(data.items || []); setTrendState("ready");
+    }).catch(() => setTrendState("unavailable"));
+  }, []);
   const previews = [
     ["안녕!", "/api/projects/bcc69af2e5e9/files/static_02_existing.png", "WAVE"],
     ["고마워", "/api/projects/bcc69af2e5e9/files/static_04_existing.png", "BOW"],
@@ -269,6 +275,23 @@ function Home({ start, openProject }) {
         <div><small>03</small><b>24개 감정 생성</b><span>표정·대사·동작</span></div>
         <ChevronRight />
         <div><small>04</small><b>한 번에 다운로드</b><span>PNG·WebP·ZIP</span></div>
+      </section>
+      <section className="trend-section">
+        <header>
+          <div><span>KAKAO SEARCH · DAILY</span><h2>오늘 새로 발견한 이모티콘</h2><p>카카오 Daum 검색 API의 최신 결과입니다. 이미지는 저장하지 않고 원문으로 연결합니다.</p></div>
+          <em>{trendState === "ready" ? `매일 갱신 · ${trends.length}개` : trendState === "loading" ? "불러오는 중" : "API 연결 확인 필요"}</em>
+        </header>
+        {trendState === "ready" && trends.length > 0 ? (
+          <div className="trend-grid">
+            {trends.slice(0,8).map((item,i) => (
+              <a href={item.source_url} target="_blank" rel="noreferrer" key={`${item.source_url}-${i}`}>
+                <div><img src={item.image} alt={`${item.query} 검색 결과`} loading="lazy" /></div>
+                <footer><span><b>{item.query.replace(" 출시","")}</b><small>{item.site} · 원문 보기</small></span><ArrowUpRight /></footer>
+              </a>
+            ))}
+          </div>
+        ) : <div className="trend-empty"><Sparkles /><b>{trendState === "loading" ? "최신 이모티콘을 찾고 있어요" : "카카오 REST API 연결 상태를 확인해 주세요"}</b></div>}
+        <small className="trend-notice">검색 썸네일의 권리는 각 원저작자에게 있으며 MotiCon은 원본 이미지를 저장하거나 학습에 사용하지 않습니다.</small>
       </section>
     </div>
   );
