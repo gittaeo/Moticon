@@ -227,7 +227,7 @@ function Home({ start, openProject }) {
     }).catch(() => setTrendState("unavailable"));
   }, []);
   const previews = [
-    ["안녕!", "/api/projects/bcc69af2e5e9/files/static_02_existing.png", "WAVE"],
+    ["안녕!", "/api/projects/bcc69af2e5e9/files/motion_02_ai_keyframes.webp", "WAVE"],
     ["고마워", "/api/projects/bcc69af2e5e9/files/static_04_existing.png", "BOW"],
     ["사랑해", "/api/projects/bcc69af2e5e9/files/static_06_existing.png", "HEART"],
     ["화났어", "/api/projects/bcc69af2e5e9/files/static_19_existing.png", "SHAKE"],

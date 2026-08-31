@@ -644,15 +644,23 @@ def compile_ai_keyframes(pid:str,body:dict[str,Any]|None=None):
     if len(files)<3:raise HTTPException(409,"AI 키프레임 PNG가 3장 이상 필요합니다.")
     cleaned=[]
     for i,path in enumerate(files[:8]):
-        source=Image.open(path).convert("RGB");cut=automatic_cutout(source);frame=sticker_master(cut)
+        # ImageGen already drew the final character anatomy.  Re-running the generic
+        # cutout removes the characters' white faces/bodies together with the pale
+        # background, so preserve the drawing and only neutralise the preview grid.
+        source=Image.open(path).convert("RGB")
+        gray=ImageOps.grayscale(source)
+        gray=ImageOps.autocontrast(gray,cutoff=1)
+        gray=gray.point(lambda value: 255 if value >= 205 else value)
+        frame=ImageOps.contain(gray,(660,560),method=Image.Resampling.LANCZOS)
+        canvas=Image.new("L",(740,640),255)
+        canvas.paste(frame,((740-frame.width)//2,(640-frame.height)//2))
+        frame=canvas.convert("RGBA")
         clean_path=folder/f"clean_{i+1:02d}.png";frame.save(clean_path,"PNG",optimize=True);cleaned.append(frame)
-    frames=[];sequence=cleaned if cleaned[-1].tobytes()==cleaned[0].tobytes() else [*cleaned,cleaned[0]]
-    for left,right in zip(sequence,sequence[1:]):
-        for n in range(5):
-            # The drawings define the anatomy; short in-betweens only smooth the hand-drawn pose changes.
-            frames.append(Image.blend(left,right,n/5))
-    frames.append(cleaned[0]);out=safe_dir(pid)/f"motion_{slot:02d}_ai_keyframes.webp"
-    frames[0].save(out,save_all=True,append_images=frames[1:],duration=90,loop=0,lossless=False,quality=84,method=4)
+    # Keep the five authored poses exact. Pixel blending creates ghost limbs and
+    # visibly softens the hand-drawn line, which is worse than discrete animation.
+    frames=cleaned
+    out=safe_dir(pid)/f"motion_{slot:02d}_ai_keyframes.webp"
+    frames[0].save(out,save_all=True,append_images=frames[1:],duration=[120,100,110,100,150][:len(frames)],loop=0,lossless=True,method=6)
     with db() as con:
         con.execute("INSERT OR REPLACE INTO motion_assets VALUES(?,?,?,?,?)",(pid,slot,str(out),"codex_imagegen_keyframes",datetime.now(timezone.utc).isoformat()))
         con.execute("UPDATE projects SET motion_path=?,status=? WHERE id=?",(str(out),"SAMPLE_REVIEW",pid))
