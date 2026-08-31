@@ -130,9 +130,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px
 @keyframes demoBow { 0%,100% { transform:translateY(0) scaleY(1); } 45% { transform:translateY(14px) scaleY(.94); } 65% { transform:translateY(10px) scaleY(.96); } }
 @keyframes demoHeart { 0%,100% { transform:scale(1); } 42% { transform:scale(1.06); } 58% { transform:scale(1.02); } 72% { transform:scale(1.07); } }
 @keyframes demoShake { 0%,100% { transform:translateX(0) rotate(0); } 35% { transform:translateX(-7px) rotate(-1.5deg); } 50% { transform:translateX(7px) rotate(1.5deg); } 65% { transform:translateX(-4px) rotate(-1deg); } }
-.demo-wave { animation:demoWave 1.8s ease-in-out infinite; transform-origin:70% 65%; }
+.demo-wave { transform-origin:70% 65%; }
 .demo-motion { will-change:transform; }
-.demo-motion.demo-wave { animation:demoWave 1.8s ease-in-out infinite; }
+.demo-motion.demo-wave { animation:none; }
 .demo-motion.demo-bow { animation:demoBow 2.1s ease-in-out infinite; }
 .demo-motion.demo-heart { animation:demoHeart 1.45s ease-in-out infinite; }
 .demo-motion.demo-shake { animation:demoShake 1.25s ease-in-out infinite; }
