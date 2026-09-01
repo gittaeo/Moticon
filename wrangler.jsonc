@@ -11,7 +11,7 @@
     "run_worker_first": ["/api/*"]
   },
   "ai": { "binding": "AI" },
-  "kv_namespaces": [{ "binding": "PROJECTS" }],
+  "kv_namespaces": [{ "binding": "PROJECTS", "id": "7094f035f6c7474fbcd6e565fe26928a" }],
   "observability": {
     "enabled": true
   }
