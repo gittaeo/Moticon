@@ -838,7 +838,7 @@ function Batch({ next }) {
     if (!providerReady) { setError("Cloudflare Workers AI 바인딩을 확인하세요."); return; }
     setRunning(true); setError(""); stopAfterCurrent.current = false;
     const complete = new Set(items.map((item) => item.slot_no));
-    for (let slot = 1; slot <= 24; slot += 1) {
+    for (let slot = 4; slot <= 24; slot += 1) {
       if (complete.has(slot)) continue;
       if (stopAfterCurrent.current) break;
       setCurrent(slot);
@@ -859,16 +859,18 @@ function Batch({ next }) {
     const data = await response.json();
     if (response.ok) setZip(data.download_url); else setError(data.detail || "ZIP 생성 실패");
   };
-  const done = items.length;
+  const aiItems = items.filter((item) => item.slot_no >= 4);
+  const done = aiItems.length;
+  const total = 21;
   return (
     <div className="page">
       <Head
         kicker="GENERATION QUEUE / 05"
-        title="24개의 실생활 감정 원화를 만들어요"
-        desc="마스터의 그림체와 캐릭터 수를 잠그고, 표정과 실제 팔다리 동작이 다른 고품질 원화를 장면별로 생성합니다."
+        title="나머지 21개 감정 원화를 만들어요"
+        desc="앞의 3개는 원본 보존 WebP로 확정했습니다. 나머지는 장면별 AI 원화이며 결과를 직접 검수해야 합니다."
       >
         <Status tone={running ? "blue" : done === 24 ? "green" : "amber"}>
-          {running ? `#${current} 생성 중` : done === 24 ? "24개 완성" : "이어 만들기 가능"}
+          {running ? `#${current} 생성 중` : done === total ? "21개 완성" : "이어 만들기 가능"}
         </Status>
       </Head>
       <div className="progressbox">
@@ -877,7 +879,7 @@ function Batch({ next }) {
             <small>OVERALL PROGRESS</small>
             <b>
               {done}
-              <em>/24</em>
+              <em>/{total}</em>
             </b>
           </span>
           <span>
@@ -886,14 +888,14 @@ function Batch({ next }) {
           </span>
         </div>
         <div className="bar">
-          <i style={{ width: `${(done / 24) * 100}%` }} />
+          <i style={{ width: `${(done / total) * 100}%` }} />
         </div>
         <footer>
           <span>
             ✓ 완료 <b>{done}</b>
           </span>
           <span>
-            ◌ 대기 <b>{24 - done}</b>
+            ◌ 대기 <b>{total - done}</b>
           </span>
           <span>
             ◉ 유료 사용 <b>₩0</b>
@@ -915,7 +917,8 @@ function Batch({ next }) {
           <b>작업 큐</b>
           <small>동시 작업 1개 · 무료 할당량 종료 시 자동 중지 · 완료분 저장</small>
         </header>
-        {phrases.map((p, i) => {
+        {phrases.slice(3).map((p, offset) => {
+          const i = offset + 3;
           const slot=i+1, saved=items.find((item)=>item.slot_no===slot);
           let state = saved ? "done" : current === slot && running ? "running" : "waiting";
           return (
