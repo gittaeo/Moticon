@@ -84,22 +84,20 @@ async function handleApi(request, env) {
   if (request.method === "POST" && masterGenerate) {
     const project = await readProject(env, masterGenerate[1]);
     if (!project) return error("프로젝트를 찾을 수 없습니다.", 404);
-    const variants = {};
-    for (const name of ["original", "white", "peach", "mint", "lilac", "butter"]) variants[name] = fileUrl(project.id, `master_${name}.png`);
-    project.master_key = `${project.id}/master_white.png`;
+    project.master_key = `${project.id}/master.png`;
     await writeProject(env, project);
-    return json({ master_url: variants.white, variant_urls: variants, provider: "cloudflare-r2-safe-copy" });
+    return json({ master_url: fileUrl(project.id, "master.png"), provider: "browser-connected-background-cutout", transparent: true });
   }
   const masterSelect = path.match(/^\/api\/projects\/([^/]+)\/masters\/select$/);
   if (request.method === "POST" && masterSelect) {
     const project = await readProject(env, masterSelect[1]);
     if (!project) return error("프로젝트를 찾을 수 없습니다.", 404);
     const body = await request.json().catch(() => ({}));
-    const variant = ["original", "white", "peach", "mint", "lilac", "butter"].includes(body.variant) ? body.variant : "white";
-    project.master_key = `${project.id}/master_${variant}.png`;
+    const variant = "cutout";
+    project.master_key = `${project.id}/master.png`;
     project.master_variant = variant;
     await writeProject(env, project);
-    return json({ master_url: fileUrl(project.id, `master_${variant}.png`), variant, locked: true });
+    return json({ master_url: fileUrl(project.id, "master.png"), variant, locked: true });
   }
   const planGenerate = path.match(/^\/api\/projects\/([^/]+)\/plans\/generate$/);
   if (request.method === "POST" && planGenerate) {
@@ -176,7 +174,7 @@ async function handleApi(request, env) {
   const fileMatch = path.match(/^\/api\/projects\/([^/]+)\/files\/([^/]+)$/);
   if (request.method === "GET" && fileMatch) {
     let object = await env.PROJECTS.get(`${fileMatch[1]}/${fileMatch[2]}`, "arrayBuffer");
-    if (!object && fileMatch[2].startsWith("master_")) object = await env.PROJECTS.get(`${fileMatch[1]}/source.png`, "arrayBuffer");
+    if (!object && fileMatch[2] === "master.png") object = await env.PROJECTS.get(`${fileMatch[1]}/source.png`, "arrayBuffer");
     if (!object) return error("파일을 찾을 수 없습니다.", 404);
     const contentType = fileMatch[2].endsWith(".zip") ? "application/zip" : "image/png";
     return new Response(object, { headers: { "content-type": contentType, "content-disposition": contentType === "application/zip" ? "attachment; filename=moticon-set.zip" : "inline", "cache-control": "public, max-age=31536000, immutable" } });

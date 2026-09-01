@@ -196,6 +196,9 @@ main { padding: 56px clamp(24px, 4vw, 64px) 90px; }
 .masters small { font-size: 9px; letter-spacing: .8px; }
 .masters b { margin-top: 5px; font-size: 13px; }
 .masters>button>svg { right: 20px; bottom: 22px; width: 21px; }
+.masters.palette-grid.single-master-grid { grid-template-columns: minmax(320px, 620px); justify-content: center; }
+.single-master-grid .checker-preview { background-color: #fff; background-image: linear-gradient(45deg,#edf0e8 25%,transparent 25%),linear-gradient(-45deg,#edf0e8 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#edf0e8 75%),linear-gradient(-45deg,transparent 75%,#edf0e8 75%); background-position: 0 0,0 10px,10px -10px,-10px 0; background-size: 20px 20px; }
+.single-master-grid .checker-preview img { object-fit: contain; }
 .manifest { margin-top: 20px; padding: 21px; }
 .manifest>header span { font-size: 10px; letter-spacing: 1.4px; }
 .manifest>header svg { width: 17px; }

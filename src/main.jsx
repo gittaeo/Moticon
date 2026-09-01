@@ -27,7 +27,6 @@ import {
   PackageCheck,
   ArrowUpRight,
   CheckCircle2,
-  CircleDashed,
 } from "lucide-react";
 import "./styles.css";
 import "./backend.css";
@@ -44,6 +43,32 @@ async function cloudSafeImage(file) {
   const context = canvas.getContext("2d", { alpha: true });
   context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
   bitmap.close();
+  const image = context.getImageData(0, 0, canvas.width, canvas.height);
+  const { data, width, height } = image;
+  const corners = [[0, 0], [width - 1, 0], [0, height - 1], [width - 1, height - 1]];
+  const background = corners.reduce((sum, [x, y]) => {
+    const offset = (y * width + x) * 4;
+    return [sum[0] + data[offset], sum[1] + data[offset + 1], sum[2] + data[offset + 2]];
+  }, [0, 0, 0]).map((value) => value / corners.length);
+  const visited = new Uint8Array(width * height);
+  const queue = [];
+  for (let x = 0; x < width; x += 1) { queue.push(x, (height - 1) * width + x); }
+  for (let y = 1; y < height - 1; y += 1) { queue.push(y * width, y * width + width - 1); }
+  for (let head = 0; head < queue.length; head += 1) {
+    const pixel = queue[head];
+    if (visited[pixel]) continue;
+    visited[pixel] = 1;
+    const offset = pixel * 4;
+    const distance = Math.hypot(data[offset] - background[0], data[offset + 1] - background[1], data[offset + 2] - background[2]);
+    if (distance > 72) continue;
+    data[offset + 3] = distance < 42 ? 0 : Math.round(((distance - 42) / 30) * 255);
+    const x = pixel % width, y = Math.floor(pixel / width);
+    if (x > 0) queue.push(pixel - 1);
+    if (x + 1 < width) queue.push(pixel + 1);
+    if (y > 0) queue.push(pixel - width);
+    if (y + 1 < height) queue.push(pixel + width);
+  }
+  context.putImageData(image, 0, 0);
   const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png", 0.95));
   return new File([blob], file.name.replace(/\.[^.]+$/, ".png"), { type: "image/png" });
 }
@@ -144,7 +169,7 @@ async function apiJson(response) {
 window.__projectId = window.__projectId || "bcc69af2e5e9";
 window.__masterUrl =
   window.__masterUrl ||
-  "/api/projects/bcc69af2e5e9/files/master_white.png";
+  "/assets/premium-otter-v2.png";
 function Mascot({ className = "", src }) {
   let live = className.startsWith("move") && window.__motionUrl;
   return (
@@ -424,22 +449,12 @@ function Source({ process, busy, error }) {
   );
 }
 function Master({ next, masterUrl }) {
-  const [sel, setSel] = useState(0),
-    keys = ["original", "white", "peach", "mint", "lilac", "butter"],
-    names = [
-      "원본 색감 유지",
-      "깨끗한 흰색",
-      "따뜻한 피치",
-      "산뜻한 민트",
-      "부드러운 라일락",
-      "밝은 버터",
-    ];
   if (masterUrl) window.__masterUrl = masterUrl;
   const choose = async () => {
     let r = await apiFetch(`/api/projects/${window.__projectId}/masters/select`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ variant: keys[sel] }),
+      body: JSON.stringify({ variant: "cutout" }),
     });
     let d = await r.json();
     if (r.ok) {
@@ -451,39 +466,17 @@ function Master({ next, masterUrl }) {
     <div className="page">
       <Head
         kicker="MASTER CHARACTER / 02"
-        title="캐릭터의 색과 분위기를 정해요"
-        desc="원본 색감을 유지하거나, 종이·회색 질감을 지운 깨끗한 흰색과 브랜드용 단색 분위기를 선택하세요."
+        title="배경을 지운 캐릭터를 확인해요"
+        desc="원본의 색과 그림체는 바꾸지 않고, 주변 배경만 제거한 투명 PNG를 마스터로 사용합니다."
       >
         <Status>마스터 분위기 선택</Status>
       </Head>
-      <div className="masters palette-grid">
-        {names.map((x, i) => {
-          let src = window.__projectId
-            ? `/api/projects/${window.__projectId}/files/master_${keys[i]}.png`
-            : masterUrl;
-          return (
-            <button
-              className={sel === i ? "selected" : ""}
-              onClick={() => setSel(i)}
-              key={x}
-            >
-              <div className="art master-white">
-                <Mascot src={src} />
-              </div>
-              <span>
-                <small>
-                  {i === 0
-                    ? "ORIGINAL"
-                    : i === 1
-                      ? "CLEAN WHITE"
-                      : "PALETTE " + String(i - 1).padStart(2, "0")}
-                </small>
-                <b>{x}</b>
-              </span>
-              {sel === i ? <CheckCircle2 /> : <CircleDashed />}
-            </button>
-          );
-        })}
+      <div className="masters palette-grid single-master-grid">
+        <button className="selected">
+          <div className="art master-white checker-preview"><Mascot src={masterUrl || window.__masterUrl} /></div>
+          <span><small>TRANSPARENT PNG</small><b>배경 제거 완료</b></span>
+          <CheckCircle2 />
+        </button>
       </div>
       <div className="manifest">
         <header>
@@ -491,16 +484,16 @@ function Master({ next, masterUrl }) {
             <Palette />
             BRAND MOOD
           </span>
-          <small>확정한 선·채색을 24개 전체에 잠금</small>
+          <small>추출한 원본 캐릭터를 24개 전체에 잠금</small>
         </header>
         <div>
           {[
-            "원본색 또는 단색 선택",
-            "종이 회색 제거",
+            "원본 색감 보존",
+            "주변 배경 제거",
             "어두운 선 보존",
-            "흰색 화면 미리보기",
+            "체커보드 투명 미리보기",
             "PNG 배경 투명",
-            "선택 분위기 잠금",
+            "캐릭터 형태 잠금",
           ].map((x) => (
             <span key={x}>{x}</span>
           ))}
@@ -511,9 +504,9 @@ function Master({ next, masterUrl }) {
           <ChevronLeft />
           이전
         </button>
-        <span>여기서 고른 색감이 표정·포즈·모션 전체의 기준이 됩니다.</span>
+        <span>이 투명 캐릭터가 표정·포즈·모션 전체의 기준이 됩니다.</span>
         <button className="primary" onClick={choose}>
-          <Lock />이 분위기로 마스터 확정
+          <Lock />이 캐릭터로 마스터 확정
         </button>
       </Foot>
     </div>

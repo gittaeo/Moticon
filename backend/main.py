@@ -220,11 +220,11 @@ def get_project(pid:str):
 @app.post("/api/projects/{pid}/assets")
 async def upload_asset(pid:str,file:UploadFile=File(...)):
     project(pid);raw=await file.read()
-    if len(raw)>15*1024*1024:raise HTTPException(413,"15MB 이하 JPG만 사용할 수 있습니다.")
+    if len(raw)>15*1024*1024:raise HTTPException(413,"15MB 이하 JPG, PNG, WebP만 사용할 수 있습니다.")
     try:
         im=Image.open(io.BytesIO(raw));im.verify();im=Image.open(io.BytesIO(raw)).convert("RGB")
-    except Exception:raise HTTPException(415,"정상적인 JPG 이미지를 확인할 수 없습니다.")
-    if file.content_type not in ("image/jpeg","image/jpg") and (im.format or "").upper()!="JPEG":raise HTTPException(415,"MVP 입력은 JPG/JPEG만 지원합니다.")
+    except Exception:raise HTTPException(415,"정상적인 이미지 파일을 확인할 수 없습니다.")
+    if file.content_type not in ("image/jpeg","image/jpg","image/png","image/webp"):raise HTTPException(415,"JPG, PNG, WebP만 지원합니다.")
     folder=safe_dir(pid);out=folder/"source_sanitized.jpg";clean=ImageOps.exif_transpose(im);clean.save(out,"JPEG",quality=94,optimize=True)
     cutout_path=folder/"source_cutout.png";automatic_cutout(clean).save(cutout_path,"PNG",optimize=True)
     report={"width":im.width,"height":im.height,"long_edge":max(im.size),"recommended_resolution":max(im.size)>=1500,"size_bytes":len(raw),"exif_removed":True}
@@ -276,26 +276,14 @@ def generate_master(pid:str):
     cutout=safe_dir(pid)/"source_cutout.png"
     src=Image.open(cutout if cutout.exists() else p["source_path"]).convert("RGBA")
     canvas=sticker_master(src)
-    folder=safe_dir(pid);variants={
-      "original":canvas,
-      "white":flat_ink_variant(canvas,"#fffdf8"),
-      "peach":flat_ink_variant(canvas,"#ffd9c7","#563e38"),
-      "mint":flat_ink_variant(canvas,"#d8f1e4","#334840"),
-      "lilac":flat_ink_variant(canvas,"#eadcf4","#473d51"),
-      "butter":flat_ink_variant(canvas,"#ffe9a8","#51442f")}
-    variant_urls={}
-    for key,image in variants.items():
-        path=folder/f"master_{key}.png";image.save(path,"PNG",optimize=True);variant_urls[key]=f"/api/projects/{pid}/files/{path.name}"
-    out=folder/"master_original.png"
+    folder=safe_dir(pid);out=folder/"master.png";canvas.save(out,"PNG",optimize=True)
     with db() as con:con.execute("UPDATE projects SET master_path=?,status=? WHERE id=?",(str(out),"MASTER_APPROVED",pid))
     record_event(pid,"MASTER_GENERATED",out,provider="local_cutout_and_sticker_preprocess",details={"method":"AI cutout, subject centering, transparent background, sticker outline"})
-    return {"master_url":variant_urls["original"],"variants":variant_urls,"provider":"local_cutout_and_sticker_preprocess","paid":False,"transparent":True,"rig_ready":True,"note":"원본 색감과 깨끗한 단색 캐릭터 5종을 만들었습니다. 흰색은 미리보기 배경이고 실제 PNG 배경은 투명합니다."}
+    return {"master_url":f"/api/projects/{pid}/files/{out.name}","provider":"local_cutout_and_sticker_preprocess","paid":False,"transparent":True,"rig_ready":True,"note":"원본 색감과 형태를 유지하고 주변 배경만 제거한 투명 PNG입니다."}
 
 @app.post("/api/projects/{pid}/masters/select")
 def select_master(pid:str,body:dict[str,Any]):
-    key=str(body.get("variant","original"));allowed={"original","white","peach","mint","lilac","butter"}
-    if key not in allowed:raise HTTPException(400,"지원 색상은 original, white, peach, mint, lilac, butter입니다.")
-    path=safe_dir(pid)/f"master_{key}.png"
+    key="cutout";path=safe_dir(pid)/"master.png"
     if not path.exists():raise HTTPException(409,"먼저 마스터 시안을 생성하세요.")
     with db() as con:con.execute("UPDATE projects SET master_path=?,status=? WHERE id=?",(str(path),"MASTER_APPROVED",pid))
     record_event(pid,"MASTER_VARIANT_SELECTED",path,details={"variant":key})
