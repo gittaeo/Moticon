@@ -11,7 +11,6 @@ import {
   ImagePlus,
   Check,
   Lock,
-  Palette,
   Sparkles,
   RefreshCw,
   Play,
@@ -477,27 +476,6 @@ function Master({ next, masterUrl }) {
           <span><small>TRANSPARENT PNG</small><b>배경 제거 완료</b></span>
           <CheckCircle2 />
         </button>
-      </div>
-      <div className="manifest">
-        <header>
-          <span>
-            <Palette />
-            BRAND MOOD
-          </span>
-          <small>추출한 원본 캐릭터를 24개 전체에 잠금</small>
-        </header>
-        <div>
-          {[
-            "원본 색감 보존",
-            "주변 배경 제거",
-            "어두운 선 보존",
-            "체커보드 투명 미리보기",
-            "PNG 배경 투명",
-            "캐릭터 형태 잠금",
-          ].map((x) => (
-            <span key={x}>{x}</span>
-          ))}
-        </div>
       </div>
       <Foot>
         <button className="back">
