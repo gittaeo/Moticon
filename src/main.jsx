@@ -35,6 +35,18 @@ import "./premium.css";
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
 const apiFetch = (input, init) =>
   fetch(typeof input === "string" && input.startsWith("/api") ? `${API_BASE}${input}` : input, init);
+async function cloudSafeImage(file) {
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, 500 / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+  canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+  const context = canvas.getContext("2d", { alpha: true });
+  context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close();
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png", 0.95));
+  return new File([blob], file.name.replace(/\.[^.]+$/, ".png"), { type: "image/png" });
+}
 const STEPS = [
   ["source", "01", "사진"],
   ["master", "02", "마스터"],
@@ -229,10 +241,10 @@ function Home({ start, openProject }) {
     }).catch(() => setTrendState("unavailable"));
   }, []);
   const previews = [
-    ["안녕!", "/api/projects/bcc69af2e5e9/files/motion_02_ai_keyframes.webp?v=5frame-lossless-2", "WAVE"],
-    ["고마워", "/api/projects/bcc69af2e5e9/files/static_04_existing.png", "BOW"],
-    ["사랑해", "/api/projects/bcc69af2e5e9/files/static_06_existing.png", "HEART"],
-    ["화났어", "/api/projects/bcc69af2e5e9/files/static_19_existing.png", "SHAKE"],
+    ["안녕!", "/assets/premium-otter-v2.png", "WAVE"],
+    ["고마워", "/assets/premium-otter.png", "BOW"],
+    ["사랑해", "/assets/premium-otter-v2.png", "HEART"],
+    ["화났어", "/assets/premium-otter.png", "SHAKE"],
   ];
   return (
     <div className="landing">
@@ -250,7 +262,7 @@ function Home({ start, openProject }) {
         <div className="hero-stage" aria-label="움직이는 이모티콘 미리보기">
           <div className="orbit orbit-one"/><div className="orbit orbit-two"/>
           <span className="floating-pill pill-one">표정 변화</span>
-          <span className="floating-pill pill-two">5+ KEYFRAMES</span>
+          <span className="floating-pill pill-two">24 SCENES</span>
           <div className="hero-card">
             <span>MOTION STYLE PREVIEW</span>
             <img className="demo-wave" src={previews[0][1]} alt="손 흔들기 동작 예시" />
@@ -763,10 +775,8 @@ function Batch({ next }) {
     [current, setCurrent] = useState(0),
     [error, setError] = useState(""),
     [zip, setZip] = useState(""),
-    [apiKey, setApiKey] = useState(""),
     [providerReady, setProviderReady] = useState(false),
-    [keyStatus, setKeyStatus] = useState(""),
-    [savingKey, setSavingKey] = useState(false);
+    [providerName, setProviderName] = useState("생성 엔진 확인 중");
   const stopAfterCurrent = useRef(false);
   const load = async () => {
     const response = await apiFetch(`/api/projects/${window.__projectId}/animated-set`);
@@ -776,30 +786,13 @@ function Batch({ next }) {
   useEffect(() => {
     load();
     apiFetch("/api/providers/status").then((r) => r.json()).then((data) => {
-      const gemini = (data.providers || []).find((item) => item.id === "gemini");
-      setProviderReady(Boolean(gemini?.configured));
+      const provider = (data.providers || []).find((item) => item.id === "cloudflare") || (data.providers || []).find((item) => item.id === "gemini");
+      setProviderReady(Boolean(provider?.configured));
+      setProviderName(provider?.name || "생성 엔진 연결 필요");
     }).catch(() => setProviderReady(false));
   }, []);
-  const connectKey = async () => {
-    if (!apiKey.trim()) return;
-    setSavingKey(true); setKeyStatus("");
-    try {
-      const response = await apiFetch("/api/providers/gemini/key", {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ api_key: apiKey.trim() }),
-        signal: AbortSignal.timeout(10000),
-      });
-      const data = await response.json();
-      if (response.ok) {
-        setApiKey(""); setProviderReady(true); setKeyStatus("연결 완료 · 생성할 때 키 유효성을 확인합니다.");
-      } else setKeyStatus(data.detail || "Gemini API 키 연결 실패");
-    } catch (reason) {
-      setKeyStatus(reason?.name === "TimeoutError" ? "연결 시간이 초과됐습니다. 백엔드 상태를 확인하세요." : "백엔드 연결에 실패했습니다.");
-    } finally {
-      setSavingKey(false);
-    }
-  };
   const generate = async () => {
-    if (!providerReady) { setError("먼저 이 페이지에서 Google AI Studio API 키를 연결하세요."); return; }
+    if (!providerReady) { setError("Cloudflare Workers AI 바인딩을 확인하세요."); return; }
     setRunning(true); setError(""); stopAfterCurrent.current = false;
     const complete = new Set(items.map((item) => item.slot_no));
     for (let slot = 1; slot <= 24; slot += 1) {
@@ -828,8 +821,8 @@ function Batch({ next }) {
     <div className="page">
       <Head
         kicker="GENERATION QUEUE / 05"
-        title="24개의 감정을 5프레임씩 만들어요"
-        desc="마스터의 그림체와 캐릭터 수를 잠그고, 표정과 실제 팔다리 동작만 장면별로 바꿉니다."
+        title="24개의 실생활 감정 원화를 만들어요"
+        desc="마스터의 그림체와 캐릭터 수를 잠그고, 표정과 실제 팔다리 동작이 다른 고품질 원화를 장면별로 생성합니다."
       >
         <Status tone={running ? "blue" : done === 24 ? "green" : "amber"}>
           {running ? `#${current} 생성 중` : done === 24 ? "24개 완성" : "이어 만들기 가능"}
@@ -868,15 +861,11 @@ function Batch({ next }) {
       <div className="gemini-key-box production-key-box">
         <span>
           <small>WEB GENERATION ENGINE</small>
-          <b>Google AI Studio 연결</b>
-          <em>Codex가 아니라 이 웹앱의 백엔드가 Gemini 이미지 API를 직접 호출합니다.</em>
+          <b>{providerName}</b>
+          <em>브라우저에 API 키를 노출하지 않고 Cloudflare Worker의 AI 바인딩으로 직접 생성합니다.</em>
         </span>
-        <input type="password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder={providerReady ? "Gemini 연결됨 · 변경할 키만 입력" : "AIza... API 키 붙여넣기"} autoComplete="off" />
-        <button className="primary" disabled={!apiKey.trim() || savingKey} onClick={connectKey}>
-          {savingKey ? <RefreshCw className="spin" /> : <Lock />}
-          {savingKey ? "확인 중" : providerReady ? "키 다시 연결" : "API 연결"}
-        </button>
-        <strong>{keyStatus || (providerReady ? "● 연결됨 · 무료 이미지 모델만 사용" : "연결 필요")}</strong>
+        <button className="primary" disabled><Lock />서버에서 안전하게 연결</button>
+        <strong>{providerReady ? "● 연결됨 · FLUX.2 Klein 4B" : "연결 필요"}</strong>
       </div>
       <div className="queue">
         <header>
@@ -897,9 +886,9 @@ function Batch({ next }) {
                 </b>
                 <small>
                   {state === "done"
-                    ? `${saved.frames || 5}개 키프레임 WebP 저장 완료`
+                    ? `${saved.frames || 1}개 AI 원화 저장 완료`
                     : state === "running"
-                      ? "Gemini가 표정·동작 5프레임 생성 중"
+                      ? "Workers AI가 표정·동작 원화 생성 중"
                       : "무료 작업 대기 중"}
                 </small>
               </span>
@@ -1471,7 +1460,7 @@ function App() {
       }));
       window.__projectId = p.id;
       let form = new FormData();
-      form.append("file", file);
+      form.append("file", await cloudSafeImage(file));
       let up = await apiFetch(`/api/projects/${p.id}/assets`, {
         method: "POST",
         body: form,
