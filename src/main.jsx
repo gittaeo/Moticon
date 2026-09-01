@@ -75,9 +75,10 @@ const STEPS = [
   ["source", "01", "사진"],
   ["master", "02", "마스터"],
   ["plan", "03", "24개 구성"],
-  ["batch", "04", "전체 생성"],
-  ["edit", "05", "세트 편집"],
-  ["export", "06", "결과 다운로드"],
+  ["samples", "04", "원본 모션 3개"],
+  ["batch", "05", "전체 생성"],
+  ["edit", "06", "세트 편집"],
+  ["export", "07", "결과 다운로드"],
 ];
 const phrases = [
   "안녕!",
@@ -164,6 +165,49 @@ async function apiJson(response) {
   catch { data = { detail: text || `서버 응답 오류 (${response.status})` }; }
   if (!response.ok) throw new Error(data.detail || `요청 실패 (${response.status})`);
   return data;
+}
+async function makeLockedMotion(masterUrl, motionIndex) {
+  const { encodeAnimation } = await import("wasm-webp");
+  const source = await fetch(masterUrl, { cache: "no-store" });
+  if (!source.ok) throw new Error("잠긴 마스터 이미지를 불러오지 못했습니다.");
+  const bitmap = await createImageBitmap(await source.blob());
+  const size = 360;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const context = canvas.getContext("2d", { alpha: true, willReadFrequently: true });
+  const fit = Math.min(290 / bitmap.width, 270 / bitmap.height);
+  const drawWidth = bitmap.width * fit;
+  const drawHeight = bitmap.height * fit;
+  const frameSteps = [0, 1, 2, 1, 0];
+  const frames = frameSteps.map((step) => {
+    context.clearRect(0, 0, size, size);
+    context.save();
+    const phase = step / 2;
+    const bounce = motionIndex === 2 ? -18 * Math.sin(phase * Math.PI) : 0;
+    const bow = motionIndex === 1 ? 5 * Math.sin(phase * Math.PI) : 0;
+    const wave = motionIndex === 0 ? 3.5 * Math.sin(phase * Math.PI) : 0;
+    const squash = motionIndex === 2 ? 1 - 0.035 * Math.sin(phase * Math.PI) : 1;
+    context.translate(size / 2, 170 + bounce);
+    context.rotate(((wave + bow) * Math.PI) / 180);
+    context.scale(1 / squash, squash);
+    context.drawImage(bitmap, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
+    context.restore();
+    context.fillStyle = "#171914";
+    context.textAlign = "center";
+    context.textBaseline = "middle";
+    context.font = "700 28px 'Noto Sans KR', sans-serif";
+    context.fillText(["안녕!", "고마워", "신난다"][motionIndex], size / 2, 326);
+    return {
+      data: new Uint8Array(context.getImageData(0, 0, size, size).data),
+      duration: 170,
+      config: { lossless: 1, quality: 100 },
+    };
+  });
+  bitmap.close();
+  const encoded = await encodeAnimation(size, size, true, frames);
+  if (!encoded) throw new Error("움직이는 WebP 인코딩에 실패했습니다.");
+  return new Blob([encoded], { type: "image/webp" });
 }
 window.__projectId = window.__projectId || "bcc69af2e5e9";
 window.__masterUrl =
@@ -630,10 +674,12 @@ function Samples({ next }) {
   const [ok, setOk] = useState([false, false, false]),
     [play, setPlay] = useState(true),
     [clips, setClips] = useState({}),
+    [building, setBuilding] = useState(false),
+    [motionError, setMotionError] = useState(""),
     data = [
-      ["지금 가!", "멀리서 카메라 앞으로 달려오기", "원근·전신"],
-      ["안녕!", "화면 밖에서 들어와 손 흔들기", "손·표정"],
-      ["신난다", "두 팔 들고 세 번 방방 뛰기", "관절·루프"],
+      ["안녕!", "좌우로 부드럽게 인사하기", "원본·루프"],
+      ["고마워", "앞으로 살짝 숙여 감사하기", "원본·각도"],
+      ["신난다", "위로 통통 뛰며 기뻐하기", "원본·리듬"],
     ];
   useEffect(() => {
     const load = () =>
@@ -647,13 +693,40 @@ function Samples({ next }) {
     window.addEventListener("motion-imported", load);
     return () => window.removeEventListener("motion-imported", load);
   }, []);
+  const buildLockedMotions = async () => {
+    if (!window.__projectId || !window.__masterUrl || building) return;
+    setBuilding(true);
+    setMotionError("");
+    try {
+      const created = {};
+      for (let index = 0; index < 3; index += 1) {
+        const blob = await makeLockedMotion(window.__masterUrl, index);
+        const form = new FormData();
+        form.append("slot_no", String(index + 1));
+        form.append("file", blob, `locked_motion_${index + 1}.webp`);
+        const response = await apiFetch(`/api/projects/${window.__projectId}/motions/import`, { method: "POST", body: form });
+        const saved = await apiJson(response);
+        created[index + 1] = saved.url;
+      }
+      setClips(created);
+      setOk([false, false, false]);
+    } catch (reason) {
+      setMotionError(reason?.message || "원본 보존 모션 생성에 실패했습니다.");
+    } finally {
+      setBuilding(false);
+    }
+  };
   return (
     <div className="page">
       <Head
         kicker="QUALITY GATE / 04"
-        title="캐릭터가 실제로 연기하는 동작 3개를 확인해요"
-        desc="그림 전체 이동은 모션으로 인정하지 않습니다. 표정·팔·다리·몸통이 장면에 맞게 변해야 승인할 수 있어요."
+        title="원본 그림을 그대로 움직인 3개를 확인해요"
+        desc="AI가 다시 그리지 않습니다. 잠긴 마스터의 선·색·캐릭터 수를 픽셀 그대로 유지한 5프레임 WebP입니다."
       >
+        <button className="play" onClick={buildLockedMotions} disabled={building}>
+          {building ? <RefreshCw className="spin" /> : <Sparkles />}
+          {building ? "3개 만드는 중" : Object.keys(clips).length ? "원본으로 다시 만들기" : "원본으로 3개 만들기"}
+        </button>
         <button className="play" onClick={() => setPlay(!play)}>
           {play ? <Pause /> : <Play />}
           {play ? "모두 멈춤" : "동시 재생"}
@@ -675,10 +748,8 @@ function Samples({ next }) {
                 ) : (
                   <div className="motion-empty">
                     <Sparkles />
-                    <b>실제 모션 영상 필요</b>
-                    <small>
-                      Grok 연동에서 {i + 1}번 영상을 생성해 가져오세요
-                    </small>
+                    <b>원본 보존 모션 미생성</b>
+                    <small>상단의 ‘원본으로 3개 만들기’를 눌러주세요</small>
                   </div>
                 )}
                 <strong>{s[0]}</strong>
@@ -712,13 +783,14 @@ function Samples({ next }) {
               </div>
               <div className="comment">
                 <MessageSquare />
-                표정·관절·몸짓 변화와 캐릭터 일관성을 확인하세요
+                선·색·캐릭터 수가 마스터와 같은지 확인하세요
                 <ChevronRight />
               </div>
             </article>
           );
         })}
       </div>
+      {motionError && <div className="api-error"><AlertTriangle />{motionError}</div>}
       <div className="gate">
         <div>
           {ok.filter(Boolean).length}
@@ -1125,9 +1197,14 @@ function Results() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
-    apiFetch(`/api/projects/${window.__projectId}/animated-set`)
-      .then((r) => r.json())
-      .then((d) => setItems(d.items || []))
+    Promise.all([
+      apiFetch(`/api/projects/${window.__projectId}/motions`).then((r) => r.json()),
+      apiFetch(`/api/projects/${window.__projectId}/animated-set`).then((r) => r.json()),
+    ])
+      .then(([locked, generated]) => {
+        const motionSlots = new Set((locked.items || []).map((item) => item.slot_no));
+        setItems([...(locked.items || []), ...(generated.items || []).filter((item) => !motionSlots.has(item.slot_no))]);
+      })
       .finally(() => setLoading(false));
   }, []);
   return (

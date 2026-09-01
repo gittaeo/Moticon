@@ -115,6 +115,26 @@ async function handleApi(request, env) {
     const items = found.filter(Boolean);
     return json({ items, completed: items.length, total: 24, provider: "cloudflare-workers-ai" });
   }
+  const motionsGet = path.match(/^\/api\/projects\/([^/]+)\/motions$/);
+  if (request.method === "GET" && motionsGet) {
+    const items = await Promise.all([1, 2, 3].map((slot) => env.PROJECTS.get(`motion:${motionsGet[1]}:${slot}`, "json")));
+    return json({ items: items.filter(Boolean), provider: "locked-master-pixel-motion" });
+  }
+  const motionImport = path.match(/^\/api\/projects\/([^/]+)\/motions\/import$/);
+  if (request.method === "POST" && motionImport) {
+    const project = await readProject(env, motionImport[1]);
+    if (!project?.master_key) return error("마스터 이미지를 먼저 확정하세요.", 404);
+    const form = await request.formData();
+    const file = form.get("file");
+    const slot = Number(form.get("slot_no"));
+    if (!(file instanceof File) || file.type !== "image/webp") return error("움직이는 WebP 파일이 필요합니다.");
+    if (![1, 2, 3].includes(slot) || file.size > 5 * 1024 * 1024) return error("1~3번, 5MB 이하 파일만 저장할 수 있습니다.");
+    const name = `locked_motion_${slot}.webp`;
+    await env.PROJECTS.put(`${project.id}/${name}`, await file.arrayBuffer());
+    const item = { slot_no: slot, phrase: ["안녕!", "고마워", "신난다"][slot - 1], emotion: ["인사", "감사", "기쁨"][slot - 1], frames: 5, url: fileUrl(project.id, name), provider: "locked-master-pixel-motion", identity_locked: true };
+    await env.PROJECTS.put(`motion:${project.id}:${slot}`, JSON.stringify(item));
+    return json(item, 201);
+  }
   const generateOne = path.match(/^\/api\/projects\/([^/]+)\/animated-set\/generate-one$/);
   if (request.method === "POST" && generateOne) {
     const project = await readProject(env, generateOne[1]);
@@ -158,6 +178,11 @@ async function handleApi(request, env) {
     const project = await readProject(env, exportSet[1]);
     if (!project) return error("프로젝트를 찾을 수 없습니다.", 404);
     const entries = {};
+    for (let slot = 1; slot <= 3; slot += 1) {
+      const motionName = `locked_motion_${slot}.webp`;
+      const motionBytes = await env.PROJECTS.get(`${project.id}/${motionName}`, "arrayBuffer");
+      if (motionBytes) entries[motionName] = new Uint8Array(motionBytes);
+    }
     for (let slot = 1; slot <= 24; slot += 1) {
       const name = `emotion_${String(slot).padStart(2, "0")}.png`;
       const bytes = await env.PROJECTS.get(`${project.id}/${name}`, "arrayBuffer");
@@ -176,7 +201,7 @@ async function handleApi(request, env) {
     let object = await env.PROJECTS.get(`${fileMatch[1]}/${fileMatch[2]}`, "arrayBuffer");
     if (!object && fileMatch[2] === "master.png") object = await env.PROJECTS.get(`${fileMatch[1]}/source.png`, "arrayBuffer");
     if (!object) return error("파일을 찾을 수 없습니다.", 404);
-    const contentType = fileMatch[2].endsWith(".zip") ? "application/zip" : "image/png";
+    const contentType = fileMatch[2].endsWith(".zip") ? "application/zip" : fileMatch[2].endsWith(".webp") ? "image/webp" : "image/png";
     return new Response(object, { headers: { "content-type": contentType, "content-disposition": contentType === "application/zip" ? "attachment; filename=moticon-set.zip" : "inline", "cache-control": "public, max-age=31536000, immutable" } });
   }
   return error("API 경로를 찾을 수 없습니다.", 404);
