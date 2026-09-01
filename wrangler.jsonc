@@ -12,7 +12,6 @@
   },
   "ai": { "binding": "AI" },
   "kv_namespaces": [{ "binding": "PROJECTS" }],
-  "r2_buckets": [{ "binding": "FILES" }],
   "observability": {
     "enabled": true
   }

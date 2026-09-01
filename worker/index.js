@@ -28,7 +28,7 @@ async function aiImage(env, source, prompt, seed) {
   form.append("width", "512");
   form.append("height", "512");
   form.append("seed", String(seed));
-  form.append("input_image_0", new Blob([source.body], { type: source.httpMetadata?.contentType || "image/png" }), "master.png");
+  form.append("input_image_0", new Blob([source], { type: "image/png" }), "master.png");
   const serialized = new Response(form);
   const result = await env.AI.run(MODEL, { multipart: { body: serialized.body, contentType: serialized.headers.get("content-type") } });
   if (result instanceof ReadableStream) return { body: result, type: "image/png" };
@@ -53,7 +53,7 @@ async function kakaoTrends(env) {
 async function handleApi(request, env) {
   const url = new URL(request.url);
   const path = decodeURIComponent(url.pathname);
-  if (request.method === "GET" && path === "/api/health") return json({ ok: true, runtime: "cloudflare-worker", ai: Boolean(env.AI), storage: Boolean(env.PROJECTS && env.FILES) });
+  if (request.method === "GET" && path === "/api/health") return json({ ok: true, runtime: "cloudflare-worker", ai: Boolean(env.AI), storage: Boolean(env.PROJECTS) });
   if (request.method === "GET" && path === "/api/providers/status") return json({ providers: [{ id: "cloudflare", name: "Cloudflare Workers AI", configured: Boolean(env.AI), model: MODEL, paid: false }, { id: "gemini", name: "Cloudflare Workers AI 호환 모드", configured: Boolean(env.AI), model: MODEL, paid: false }] });
   if (request.method === "POST" && path === "/api/providers/gemini/key") return json({ configured: Boolean(env.AI), provider: "cloudflare", detail: "공개 서비스는 브라우저 API 키 대신 안전한 Workers AI 바인딩을 사용합니다." });
   if (request.method === "GET" && path === "/api/trends/emoticons") return json(await kakaoTrends(env));
@@ -72,7 +72,7 @@ async function handleApi(request, env) {
     if (!(file instanceof File)) return error("이미지 파일이 필요합니다.");
     if (!file.type.startsWith("image/") || file.size > 8 * 1024 * 1024) return error("8MB 이하 JPG, PNG, WebP 이미지만 사용할 수 있습니다.");
     const key = `${project.id}/source.png`;
-    await env.FILES.put(key, file.stream(), { httpMetadata: { contentType: file.type || "image/png" }, customMetadata: { originalName: file.name } });
+    await env.PROJECTS.put(key, await file.arrayBuffer());
     project.source_key = key;
     project.master_key = key;
     await writeProject(env, project);
@@ -84,8 +84,8 @@ async function handleApi(request, env) {
     if (!project?.source_key) return error("먼저 사진을 업로드하세요.", 404);
     const variants = {};
     for (const name of ["original", "white", "peach", "mint", "lilac", "butter"]) variants[name] = fileUrl(project.id, `master_${name}.png`);
-    const source = await env.FILES.get(project.source_key);
-    for (const name of Object.keys(variants)) await env.FILES.put(`${project.id}/master_${name}.png`, source.body, { httpMetadata: source.httpMetadata });
+    const source = await env.PROJECTS.get(project.source_key, "arrayBuffer");
+    for (const name of Object.keys(variants)) await env.PROJECTS.put(`${project.id}/master_${name}.png`, source);
     project.master_key = `${project.id}/master_white.png`;
     await writeProject(env, project);
     return json({ master_url: variants.white, variant_urls: variants, provider: "cloudflare-r2-safe-copy" });
@@ -122,13 +122,14 @@ async function handleApi(request, env) {
     const body = await request.json().catch(() => ({}));
     const slot = Number(body.slot_no);
     if (!Number.isInteger(slot) || slot < 1 || slot > 24) return error("slot_no는 1~24여야 합니다.");
-    const source = await env.FILES.get(project.master_key);
+    const source = await env.PROJECTS.get(project.master_key, "arrayBuffer");
     if (!source) return error("마스터 파일을 찾을 수 없습니다.", 404);
     const prompt = `The user owns all rights to the supplied reference image. Keep it private to this request and do not disclose or reuse it. Image 0 is the locked master character. Create one polished Korean messenger emoticon on a clean white background. Preserve exactly the character count, species, facial identity, line thickness, proportions, markings, and color palette. Do not add or remove limbs, characters, or props. Scene: ${MOTIONS[slot - 1]}. Emotion: ${EMOTIONS[slot - 1]}. Leave clear space for the Korean caption \"${PHRASES[slot - 1]}\" but do not render any letters. Centered full-body composition, crisp dark line art, commercial sticker quality.`;
     try {
       const output = await aiImage(env, source, prompt, slot * 104729 + 17);
       const name = `emotion_${String(slot).padStart(2, "0")}.png`;
-      await env.FILES.put(`${project.id}/${name}`, output.body, { httpMetadata: { contentType: output.type } });
+      const imageBytes = await new Response(output.body).arrayBuffer();
+      await env.PROJECTS.put(`${project.id}/${name}`, imageBytes);
       const item = { slot_no: slot, phrase: PHRASES[slot - 1], emotion: EMOTIONS[slot - 1], motion_prompt: MOTIONS[slot - 1], frames: 1, url: fileUrl(project.id, name), provider: "cloudflare-flux-2-klein-4b", model: MODEL, paid_fallback: false };
       project.generated ||= {};
       project.generated[String(slot)] = item;
@@ -141,13 +142,9 @@ async function handleApi(request, env) {
   }
   const fileMatch = path.match(/^\/api\/projects\/([^/]+)\/files\/([^/]+)$/);
   if (request.method === "GET" && fileMatch) {
-    const object = await env.FILES.get(`${fileMatch[1]}/${fileMatch[2]}`);
+    const object = await env.PROJECTS.get(`${fileMatch[1]}/${fileMatch[2]}`, "arrayBuffer");
     if (!object) return error("파일을 찾을 수 없습니다.", 404);
-    const headers = new Headers();
-    object.writeHttpMetadata(headers);
-    headers.set("etag", object.httpEtag);
-    headers.set("cache-control", "public, max-age=31536000, immutable");
-    return new Response(object.body, { headers });
+    return new Response(object, { headers: { "content-type": "image/png", "cache-control": "public, max-age=31536000, immutable" } });
   }
   return error("API 경로를 찾을 수 없습니다.", 404);
 }

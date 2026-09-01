@@ -31,7 +31,7 @@
 ## Cloudflare 배포 구조
 
 - `moticon`: GitHub `main`과 연결되는 React/Vite Cloudflare Worker Static Assets 프런트엔드
-- `moticon` Worker가 정적 프런트와 `/api`를 함께 제공하며 Workers AI, KV, R2를 바인딩
+- `moticon` Worker가 정적 프런트와 `/api`를 함께 제공하며 Workers AI와 KV를 바인딩
 - 로컬 개발에서는 기존 FastAPI·SQLite를 계속 사용
 - `VITE_API_BASE_URL`이 비어 있으면 동일 출처 `/api`를 사용하고, 별도 Worker 배포 후 API 주소를 지정
 - `wrangler.jsonc`가 `dist` 정적 파일과 SPA 경로 fallback을 관리하므로 Pages 전용 `_redirects` 파일은 사용하지 않음
@@ -144,7 +144,8 @@ npm.cmd run key:cloudflare # Workers AI Account ID·Token 검증 및 안전 저�
 - Cloudflare Workers 자동 배포를 위한 Static Assets SPA 라우팅과 `VITE_API_BASE_URL` 기반 프런트/API 분리 구조 추가
 - Workers 배포에서 무한 순환을 일으키던 Pages 전용 `_redirects`를 제거하고 `wrangler.jsonc`의 `single-page-application` fallback으로 교체
 - 공개 Worker에 프로젝트 생성, 이미지 업로드, 마스터 잠금, 24개 실생활 장면 기획, 개별 AI 원화 생성 API 추가
-- Workers AI·KV·R2를 브라우저 키 노출 없이 바인딩하고 업로드 이미지를 AI 입력 제한에 맞춰 500px 이하 PNG로 안전 변환
+- Workers AI·KV를 브라우저 키 노출 없이 바인딩하고 업로드 이미지를 AI 입력 제한에 맞춰 500px 이하 PNG로 안전 변환
+- 계정에서 R2가 활성화되지 않은 상태에서도 배포되도록 초기 공개판의 이미지 저장소를 KV로 통합
 - 공개 홈의 로컬 전용 이미지 경로를 배포 자산으로 교체하고 Kakao 이미지 검색 API용 최신 이모티콘 참고 영역 연결
 - 무료 모델만 사용하고 유료 모델 전환·자동 결제를 차단하는 정책 적용
 - 카카오 트렌드 메타데이터를 기획 프롬프트에 참고 신호로 반영하되 외부 이모티콘 원본은 복제하지 않도록 제한
