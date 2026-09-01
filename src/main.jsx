@@ -780,14 +780,20 @@ function Batch({ next }) {
   const connectKey = async () => {
     if (!apiKey.trim()) return;
     setSavingKey(true); setKeyStatus("");
-    const response = await fetch("/api/providers/gemini/key", {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ api_key: apiKey.trim() }),
-    });
-    const data = await response.json();
-    if (response.ok) {
-      setApiKey(""); setProviderReady(true); setKeyStatus("연결 완료 · 이 페이지에서 직접 생성할 수 있습니다.");
-    } else setKeyStatus(data.detail || "Gemini API 키 연결 실패");
-    setSavingKey(false);
+    try {
+      const response = await fetch("/api/providers/gemini/key", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ api_key: apiKey.trim() }),
+        signal: AbortSignal.timeout(10000),
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setApiKey(""); setProviderReady(true); setKeyStatus("연결 완료 · 생성할 때 키 유효성을 확인합니다.");
+      } else setKeyStatus(data.detail || "Gemini API 키 연결 실패");
+    } catch (reason) {
+      setKeyStatus(reason?.name === "TimeoutError" ? "연결 시간이 초과됐습니다. 백엔드 상태를 확인하세요." : "백엔드 연결에 실패했습니다.");
+    } finally {
+      setSavingKey(false);
+    }
   };
   const generate = async () => {
     if (!providerReady) { setError("먼저 이 페이지에서 Google AI Studio API 키를 연결하세요."); return; }
@@ -1054,22 +1060,24 @@ function StaticStudio() {
     if (!apiKey.trim()) return;
     setSavingKey(true);
     setKeyStatus("");
-    const r = await fetch("/api/providers/gemini/key", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ api_key: apiKey.trim() }),
-    });
-    const d = await r.json();
-    if (r.ok) {
-      setApiKey("");
-      setError("");
-      setKeyStatus(
-        d.image_models?.length
-          ? `연결 완료 · 이미지 모델 ${d.image_models.length}개 확인`
-          : "키는 연결됐지만 이미지 생성 모델이 확인되지 않았습니다.",
-      );
-    } else setKeyStatus(d.detail || "API 키 연결 실패");
-    setSavingKey(false);
+    try {
+      const r = await fetch("/api/providers/gemini/key", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ api_key: apiKey.trim() }),
+        signal: AbortSignal.timeout(10000),
+      });
+      const d = await r.json();
+      if (r.ok) {
+        setApiKey("");
+        setError("");
+        setKeyStatus("연결 완료 · 생성할 때 키 유효성을 확인합니다.");
+      } else setKeyStatus(d.detail || "API 키 연결 실패");
+    } catch (reason) {
+      setKeyStatus(reason?.name === "TimeoutError" ? "연결 시간이 초과됐습니다." : "백엔드 연결에 실패했습니다.");
+    } finally {
+      setSavingKey(false);
+    }
   };
   return (
     <section className="static-studio">

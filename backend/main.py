@@ -186,19 +186,15 @@ async def gemini_models():
 async def save_gemini_key(body:dict[str,Any]):
     key=str(body.get("api_key","")).strip()
     if not key or len(key)<20:raise HTTPException(400,"올바른 Google AI Studio API 키를 입력하세요.")
-    async with httpx.AsyncClient(timeout=30) as c:
-        r=await c.get("https://generativelanguage.googleapis.com/v1beta/models",headers={"x-goog-api-key":key})
-    if r.status_code>=400:raise HTTPException(401,"API 키 확인에 실패했습니다. Google AI Studio에서 키 상태를 확인하세요.")
-    env_path=ROOT/".env";lines=env_path.read_text("utf-8").splitlines() if env_path.exists() else []
-    lines=[line for line in lines if not line.startswith("GEMINI_API_KEY=")]
+    # Connecting a key must be instant. A remote model-list request can stall on
+    # some Windows/network setups, so validity is checked by the first generation
+    # request instead of blocking this local credential-save endpoint.
+    env_path=ROOT/".env";lines=env_path.read_text("utf-8-sig").splitlines() if env_path.exists() else []
+    lines=[line for line in lines if not line.lstrip("\ufeff").startswith("GEMINI_API_KEY=")]
     lines.append(f"GEMINI_API_KEY={key}")
     env_path.write_text("\n".join(lines)+"\n",encoding="utf-8")
     os.environ["GEMINI_API_KEY"]=key
-    image_models=[]
-    for m in r.json().get("models",[]):
-        name=m.get("name","")
-        if "image" in name.lower() and "generateContent" in m.get("supportedGenerationMethods",[]):image_models.append(name.replace("models/",""))
-    return {"configured":True,"valid":True,"image_models":image_models,"key_stored_locally":True,"key_returned":False}
+    return {"configured":True,"validation":"deferred_until_generation","key_stored_locally":True,"key_returned":False}
 
 @app.post("/api/projects")
 def create_project(body:dict[str,Any]|None=None):
