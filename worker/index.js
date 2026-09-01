@@ -1,3 +1,5 @@
+import { zipSync } from "fflate";
+
 const MODEL = "@cf/black-forest-labs/flux-2-klein-4b";
 const PHRASES = ["안녕!", "반가워", "잘 가", "고마워", "미안해", "사랑해", "좋아!", "최고야", "축하해", "화이팅", "대박", "헉!", "정말?", "왜?", "신난다", "너무 웃겨", "감동이야", "슬퍼", "화났어", "삐졌어", "기다려", "지금 가!", "배고파", "잘 자"];
 const EMOTIONS = ["인사", "환영", "작별", "감사", "사과", "애정", "긍정", "칭찬", "축하", "응원", "놀람", "당황", "의문", "질문", "기쁨", "웃음", "감동", "슬픔", "화남", "토라짐", "요청", "이동", "일상", "취침"];
@@ -111,7 +113,9 @@ async function handleApi(request, env) {
   if (request.method === "GET" && animatedGet) {
     const project = await readProject(env, animatedGet[1]);
     if (!project) return error("프로젝트를 찾을 수 없습니다.", 404);
-    return json({ items: Object.values(project.generated || {}).sort((a, b) => a.slot_no - b.slot_no), completed: Object.keys(project.generated || {}).length, total: 24, provider: "cloudflare-workers-ai" });
+    const found = await Promise.all(PHRASES.map((_, index) => env.PROJECTS.get(`generated:${project.id}:${index + 1}`, "json")));
+    const items = found.filter(Boolean);
+    return json({ items, completed: items.length, total: 24, provider: "cloudflare-workers-ai" });
   }
   const generateOne = path.match(/^\/api\/projects\/([^/]+)\/animated-set\/generate-one$/);
   if (request.method === "POST" && generateOne) {
@@ -129,21 +133,38 @@ async function handleApi(request, env) {
       const imageBytes = await new Response(output.body).arrayBuffer();
       await env.PROJECTS.put(`${project.id}/${name}`, imageBytes);
       const item = { slot_no: slot, phrase: PHRASES[slot - 1], emotion: EMOTIONS[slot - 1], motion_prompt: MOTIONS[slot - 1], frames: 1, url: fileUrl(project.id, name), provider: "cloudflare-flux-2-klein-4b", model: MODEL, paid_fallback: false };
-      project.generated ||= {};
-      project.generated[String(slot)] = item;
-      await writeProject(env, project);
+      await env.PROJECTS.put(`generated:${project.id}:${slot}`, JSON.stringify(item));
       return json(item);
     } catch (reason) {
       console.error(JSON.stringify({ event: "image_generation_failed", projectId: project.id, slot, message: reason?.message }));
       return error(`Workers AI 생성 실패: ${reason?.message || "알 수 없는 오류"}`, 502);
     }
   }
+  const exportSet = path.match(/^\/api\/projects\/([^/]+)\/animated-set\/export$/);
+  if (request.method === "POST" && exportSet) {
+    const project = await readProject(env, exportSet[1]);
+    if (!project) return error("프로젝트를 찾을 수 없습니다.", 404);
+    const entries = {};
+    for (let slot = 1; slot <= 24; slot += 1) {
+      const name = `emotion_${String(slot).padStart(2, "0")}.png`;
+      const bytes = await env.PROJECTS.get(`${project.id}/${name}`, "arrayBuffer");
+      if (bytes) entries[name] = new Uint8Array(bytes);
+    }
+    const names = Object.keys(entries);
+    if (!names.length) return error("먼저 이모티콘을 생성하세요.", 409);
+    entries["manifest.json"] = new TextEncoder().encode(JSON.stringify({ project: project.name, generated: names.length, total: 24, model: MODEL, rights: "Uploaded source rights are declared by the user.", created_at: new Date().toISOString() }, null, 2));
+    const zip = zipSync(entries, { level: 6 });
+    const zipName = "moticon-set.zip";
+    await env.PROJECTS.put(`${project.id}/${zipName}`, zip);
+    return json({ download_url: fileUrl(project.id, zipName), completed: names.length, total: 24 });
+  }
   const fileMatch = path.match(/^\/api\/projects\/([^/]+)\/files\/([^/]+)$/);
   if (request.method === "GET" && fileMatch) {
     let object = await env.PROJECTS.get(`${fileMatch[1]}/${fileMatch[2]}`, "arrayBuffer");
     if (!object && fileMatch[2].startsWith("master_")) object = await env.PROJECTS.get(`${fileMatch[1]}/source.png`, "arrayBuffer");
     if (!object) return error("파일을 찾을 수 없습니다.", 404);
-    return new Response(object, { headers: { "content-type": "image/png", "cache-control": "public, max-age=31536000, immutable" } });
+    const contentType = fileMatch[2].endsWith(".zip") ? "application/zip" : "image/png";
+    return new Response(object, { headers: { "content-type": contentType, "content-disposition": contentType === "application/zip" ? "attachment; filename=moticon-set.zip" : "inline", "cache-control": "public, max-age=31536000, immutable" } });
   }
   return error("API 경로를 찾을 수 없습니다.", 404);
 }
