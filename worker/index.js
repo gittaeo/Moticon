@@ -126,9 +126,24 @@ async function handleApi(request, env) {
     if (!Number.isInteger(slot) || slot < 1 || slot > 24) return error("slot_no는 1~24여야 합니다.");
     const source = await env.PROJECTS.get(project.master_key || `${project.id}/source.png`, "arrayBuffer") || await env.PROJECTS.get(`${project.id}/source.png`, "arrayBuffer");
     if (!source) return error("마스터 파일을 찾을 수 없습니다.", 404);
-    const prompt = `The user owns all rights to the supplied reference image. Keep it private to this request and do not disclose or reuse it. Image 0 is the locked master character. Create one polished Korean messenger emoticon on a clean white background. Preserve exactly the character count, species, facial identity, line thickness, proportions, markings, and color palette. Do not add or remove limbs, characters, or props. Scene: ${MOTIONS[slot - 1]}. Emotion: ${EMOTIONS[slot - 1]}. Leave clear space for the Korean caption \"${PHRASES[slot - 1]}\" but do not render any letters. Centered full-body composition, crisp dark line art, commercial sticker quality.`;
+    const prompts = [
+      `The user owns all rights to the supplied reference image. Keep it private to this request and do not disclose or reuse it. Image 0 is the locked master character. Create one polished Korean messenger emoticon on a clean white background. Preserve exactly the character count, species, facial identity, line thickness, proportions, markings, and color palette. Do not add or remove limbs, characters, or props. Scene: ${MOTIONS[slot - 1]}. Emotion: ${EMOTIONS[slot - 1]}. Leave clear space for the Korean caption \"${PHRASES[slot - 1]}\" but do not render any letters. Centered full-body composition, crisp dark line art, commercial sticker quality.`,
+      `The reference is a user-owned original character and must remain private. Re-draw the exact same character making a friendly ${EMOTIONS[slot - 1]} gesture for a family-safe messenger sticker. Keep the same identity, colors, markings, character count and anatomy. Clean white background, centered full body, crisp line art, no letters, no extra objects.`,
+      `User-owned character reference. Make a safe, cheerful, all-ages sticker pose expressing ${EMOTIONS[slot - 1]}. Preserve the reference character exactly. White background, clean line art, no words, no added characters or body parts.`,
+    ];
     try {
-      const output = await aiImage(env, source, prompt, slot * 104729 + 17);
+      let output;
+      let lastReason;
+      for (let attempt = 0; attempt < prompts.length; attempt += 1) {
+        try {
+          output = await aiImage(env, source, prompts[attempt], slot * 104729 + 17 + attempt * 7919);
+          break;
+        } catch (reason) {
+          lastReason = reason;
+          if (!String(reason?.message || "").includes("3030")) throw reason;
+        }
+      }
+      if (!output) throw lastReason || new Error("안전한 대체 프롬프트도 생성되지 않았습니다.");
       const name = `emotion_${String(slot).padStart(2, "0")}.png`;
       const imageBytes = await new Response(output.body).arrayBuffer();
       await env.PROJECTS.put(`${project.id}/${name}`, imageBytes);
