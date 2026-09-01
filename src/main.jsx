@@ -1458,7 +1458,7 @@ function App() {
       <Page
         next={next}
         start={() => setStep("source")}
-        openProject={() => setStep("export")}
+        openProject={() => setStep("batch")}
         process={process}
         busy={busy}
         error={error}

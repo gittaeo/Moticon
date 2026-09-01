@@ -139,7 +139,7 @@ async def emoticon_trends(refresh:bool=False):
             saved=json.loads(cache.read_text(encoding="utf-8"))
             if saved.get("date")==today:return saved
         except Exception:pass
-    queries=["신규 카카오 이모티콘","움직이는 이모티콘 출시"]
+    queries=["신규 카카오 움직이는 이모티콘","카카오 이모티콘 일상 감정","카카오 이모티콘 인사 리액션","카카오 이모티콘 커플 동물"]
     found=[];seen=set();headers={"Authorization":f"KakaoAK {key}"}
     async with httpx.AsyncClient(timeout=25,follow_redirects=True) as client:
         for query in queries:
@@ -339,7 +339,9 @@ async def gemini_plan(manifest:dict):
     key=os.getenv("GEMINI_API_KEY")
     if not key:return None
     schema={"type":"array","items":{"type":"object","properties":{"slot_no":{"type":"integer"},"phrase":{"type":"string"},"intent":{"type":"string"},"emotion":{"type":"string"},"facial_expression":{"type":"string"},"body_pose":{"type":"string"},"motion_source":{"type":"string"},"motion_prompt":{"type":"string"},"camera":{"type":"string"},"duration":{"type":"number"},"speed":{"type":"string"},"loop_strategy":{"type":"string"},"text_style":{"type":"string"},"difficulty":{"type":"string"}},"required":["slot_no","phrase","intent","emotion","facial_expression","body_pose","motion_source","motion_prompt","camera","duration","speed","loop_strategy","text_style","difficulty"]}}
-    prompt="정확히 24개의 한국어 메신저 이모티콘 세트를 기획해. 의사소통 목적이 중복되지 않게 하고 인사·긍정·감사·사과·놀람·웃음·기쁨·슬픔·화남·일상을 균형 있게 포함해. 문구는 짧게, 모션은 시작-중간-끝의 표정과 전신 자세가 드러나게 작성해. 문구는 이미지에 굽지 않고 별도 레이어로 처리한다. 캐릭터 명세: "+json.dumps(manifest,ensure_ascii=False)
+    prompt=("정확히 24개의 한국어 메신저 이모티콘 세트를 기획해. 의사소통 목적이 중복되지 않게 하고 인사·긍정·감사·사과·놀람·웃음·기쁨·슬픔·화남·일상을 균형 있게 포함해. "
+      "문구는 짧게, 모션은 5개 키프레임(예비동작-시작-절정-회복-루프 복귀)의 표정과 실제 팔다리 자세가 드러나게 작성해. 문구는 이미지에 굽지 않고 별도 레이어로 처리한다. "
+      "trend_signals는 Kakao Daum Search API의 당일 검색어와 출처 통계일 뿐이다. 인기 상황의 범주만 참고하고 검색 이미지의 캐릭터·구도·문구·그림체는 절대 복제하지 마. 캐릭터 명세: "+json.dumps(manifest,ensure_ascii=False))
     body={"contents":[{"parts":[{"text":prompt}]}],"generationConfig":{"responseMimeType":"application/json","responseJsonSchema":schema}}
     model=os.getenv("GEMINI_MODEL","gemini-3.5-flash-lite")
     async with httpx.AsyncClient(timeout=90) as c:r=await c.post(f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",headers={"x-goog-api-key":key},json=body)
@@ -362,6 +364,12 @@ def save_plan(pid:str,items:list[dict]):
 @app.post("/api/projects/{pid}/plans/generate")
 async def generate_plan(pid:str):
     p=project(pid);manifest=json.loads(p["manifest"]) if p.get("manifest") else {"style_prompt":"고품질 2D 이모티콘"}
+    cache=DATA.parent/"kakao_emoticon_trends.json"
+    if cache.exists():
+        try:
+            trend=json.loads(cache.read_text(encoding="utf-8"))
+            manifest["trend_signals"]={"date":trend.get("date"),"queries":sorted({x.get("query") for x in trend.get("items",[]) if x.get("query")}),"source_sites":sorted({x.get("site") for x in trend.get("items",[]) if x.get("site")})[:8],"copyright_rule":"metadata categories only; never copy images"}
+        except Exception:pass
     warning=None
     try:items=await gemini_plan(manifest)
     except HTTPException as e:
@@ -631,6 +639,9 @@ def get_animated_set(pid:str):
         if not path.exists():continue
         try:frames=getattr(Image.open(path),"n_frames",1)
         except Exception:frames=0
+        # Current production rule is 5–10 authored frames. Older experimental
+        # assets with extra blended frames are deliberately queued for regeneration.
+        if not 5<=frames<=10:continue
         items.append({"slot_no":row["slot_no"],"phrase":row["phrase"] or FALLBACK_PHRASES[row["slot_no"]-1],"emotion":row["emotion"] or FALLBACK_INTENTS[row["slot_no"]-1],"motion_prompt":row["motion_prompt"] or FALLBACK_MOTIONS[row["slot_no"]-1],"provider":row["provider"],"frames":frames,"url":f"/api/projects/{pid}/files/{path.name}?v={int(path.stat().st_mtime)}"})
     return {"items":items,"completed":len(items),"total":24,"keyframes_per_item":5,"paid_calls_allowed":False,"resume_supported":True}
 
@@ -647,7 +658,14 @@ async def generate_animated_item(pid:str,body:dict[str,Any]):
 def export_animated_set(pid:str):
     p=project(pid)
     with db() as con:rows=con.execute("SELECT slot_no,path FROM motion_assets WHERE project_id=? AND provider!='local_python_rig_v1' ORDER BY slot_no",(pid,)).fetchall()
-    rows=[row for row in rows if Path(row["path"]).exists()]
+    valid=[]
+    for row in rows:
+        path=Path(row["path"])
+        if not path.exists():continue
+        try:frames=getattr(Image.open(path),"n_frames",1)
+        except Exception:continue
+        if 5<=frames<=10:valid.append(row)
+    rows=valid
     if not rows:raise HTTPException(409,"먼저 움직이는 이모티콘을 생성하세요.")
     out=safe_dir(pid)/"moticon_animated_set.zip"
     with zipfile.ZipFile(out,"w",zipfile.ZIP_DEFLATED) as archive:
