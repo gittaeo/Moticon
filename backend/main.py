@@ -12,7 +12,9 @@ from fastapi.responses import FileResponse
 from PIL import Image, ImageEnhance, ImageFilter, ImageOps, ImageDraw, ImageFont, ImageChops, ImageColor
 
 ROOT = Path(__file__).resolve().parents[1]
-load_dotenv(ROOT / ".env")
+# The local .env is the user's explicit server configuration. Override empty or
+# stale parent-shell values so restarting from npm keeps connected providers.
+load_dotenv(ROOT / ".env", override=True, encoding="utf-8-sig")
 DATA = (ROOT / os.getenv("PROJECTS_DIR", "data/projects")).resolve()
 DATA.mkdir(parents=True, exist_ok=True)
 DB = DATA.parent / "moticon.db"
@@ -632,7 +634,7 @@ async def generate_ai_motion_sheet(pid:str,slot_no:int,action:str,phrase:str)->d
 def get_animated_set(pid:str):
     project(pid)
     with db() as con:
-        rows=con.execute("SELECT m.slot_no,m.path,m.provider,s.phrase,s.emotion,s.motion_prompt FROM motion_assets m LEFT JOIN sticker_items s ON s.project_id=m.project_id AND s.slot_no=m.slot_no WHERE m.project_id=? AND m.provider!='local_python_rig_v1' ORDER BY m.slot_no",(pid,)).fetchall()
+        rows=con.execute("SELECT m.slot_no,m.path,m.provider,s.phrase,s.emotion,s.motion_prompt FROM motion_assets m LEFT JOIN sticker_items s ON s.project_id=m.project_id AND s.slot_no=m.slot_no WHERE m.project_id=? AND m.provider='gemini_keyframe_sheet' ORDER BY m.slot_no",(pid,)).fetchall()
     items=[]
     for row in rows:
         path=Path(row["path"])
@@ -643,7 +645,7 @@ def get_animated_set(pid:str):
         # assets with extra blended frames are deliberately queued for regeneration.
         if not 5<=frames<=10:continue
         items.append({"slot_no":row["slot_no"],"phrase":row["phrase"] or FALLBACK_PHRASES[row["slot_no"]-1],"emotion":row["emotion"] or FALLBACK_INTENTS[row["slot_no"]-1],"motion_prompt":row["motion_prompt"] or FALLBACK_MOTIONS[row["slot_no"]-1],"provider":row["provider"],"frames":frames,"url":f"/api/projects/{pid}/files/{path.name}?v={int(path.stat().st_mtime)}"})
-    return {"items":items,"completed":len(items),"total":24,"keyframes_per_item":5,"paid_calls_allowed":False,"resume_supported":True}
+    return {"items":items,"completed":len(items),"total":24,"keyframes_per_item":5,"paid_calls_allowed":False,"resume_supported":True,"generation_source":"web_gemini_api_only","codex_seed_assets_counted":False}
 
 @app.post("/api/projects/{pid}/animated-set/generate-one")
 async def generate_animated_item(pid:str,body:dict[str,Any]):
@@ -657,7 +659,7 @@ async def generate_animated_item(pid:str,body:dict[str,Any]):
 @app.post("/api/projects/{pid}/animated-set/export")
 def export_animated_set(pid:str):
     p=project(pid)
-    with db() as con:rows=con.execute("SELECT slot_no,path FROM motion_assets WHERE project_id=? AND provider!='local_python_rig_v1' ORDER BY slot_no",(pid,)).fetchall()
+    with db() as con:rows=con.execute("SELECT slot_no,path FROM motion_assets WHERE project_id=? AND provider='gemini_keyframe_sheet' ORDER BY slot_no",(pid,)).fetchall()
     valid=[]
     for row in rows:
         path=Path(row["path"])

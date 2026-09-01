@@ -759,15 +759,38 @@ function Batch({ next }) {
     [running, setRunning] = useState(false),
     [current, setCurrent] = useState(0),
     [error, setError] = useState(""),
-    [zip, setZip] = useState("");
+    [zip, setZip] = useState(""),
+    [apiKey, setApiKey] = useState(""),
+    [providerReady, setProviderReady] = useState(false),
+    [keyStatus, setKeyStatus] = useState(""),
+    [savingKey, setSavingKey] = useState(false);
   const stopAfterCurrent = useRef(false);
   const load = async () => {
     const response = await fetch(`/api/projects/${window.__projectId}/animated-set`);
     const data = await response.json();
     if (response.ok) setItems(data.items || []);
   };
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    fetch("/api/providers/status").then((r) => r.json()).then((data) => {
+      const gemini = (data.providers || []).find((item) => item.id === "gemini");
+      setProviderReady(Boolean(gemini?.configured));
+    }).catch(() => setProviderReady(false));
+  }, []);
+  const connectKey = async () => {
+    if (!apiKey.trim()) return;
+    setSavingKey(true); setKeyStatus("");
+    const response = await fetch("/api/providers/gemini/key", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ api_key: apiKey.trim() }),
+    });
+    const data = await response.json();
+    if (response.ok) {
+      setApiKey(""); setProviderReady(true); setKeyStatus("연결 완료 · 이 페이지에서 직접 생성할 수 있습니다.");
+    } else setKeyStatus(data.detail || "Gemini API 키 연결 실패");
+    setSavingKey(false);
+  };
   const generate = async () => {
+    if (!providerReady) { setError("먼저 이 페이지에서 Google AI Studio API 키를 연결하세요."); return; }
     setRunning(true); setError(""); stopAfterCurrent.current = false;
     const complete = new Set(items.map((item) => item.slot_no));
     for (let slot = 1; slot <= 24; slot += 1) {
@@ -830,8 +853,21 @@ function Batch({ next }) {
           <span>
             ◉ 유료 사용 <b>₩0</b>
           </span>
-          {running ? <button onClick={pause}><Pause />현재 항목 후 정지</button> : <button onClick={generate}><Play />{done ? "이어서 생성" : "24개 생성 시작"}</button>}
+          {running ? <button onClick={pause}><Pause />현재 항목 후 정지</button> : <button disabled={!providerReady} onClick={generate}><Play />{done ? "이어서 생성" : "웹에서 24개 생성 시작"}</button>}
         </footer>
+      </div>
+      <div className="gemini-key-box production-key-box">
+        <span>
+          <small>WEB GENERATION ENGINE</small>
+          <b>Google AI Studio 연결</b>
+          <em>Codex가 아니라 이 웹앱의 백엔드가 Gemini 이미지 API를 직접 호출합니다.</em>
+        </span>
+        <input type="password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder={providerReady ? "Gemini 연결됨 · 변경할 키만 입력" : "AIza... API 키 붙여넣기"} autoComplete="off" />
+        <button className="primary" disabled={!apiKey.trim() || savingKey} onClick={connectKey}>
+          {savingKey ? <RefreshCw className="spin" /> : <Lock />}
+          {savingKey ? "확인 중" : providerReady ? "키 다시 연결" : "API 연결"}
+        </button>
+        <strong>{keyStatus || (providerReady ? "● 연결됨 · 무료 이미지 모델만 사용" : "연결 필요")}</strong>
       </div>
       <div className="queue">
         <header>
