@@ -36,10 +36,9 @@ const STEPS = [
   ["source", "01", "사진"],
   ["master", "02", "마스터"],
   ["plan", "03", "24개 구성"],
-  ["samples", "04", "샘플 승인"],
-  ["batch", "05", "전체 생성"],
-  ["edit", "06", "세트 편집"],
-  ["export", "07", "결과 다운로드"],
+  ["batch", "04", "전체 생성"],
+  ["edit", "05", "세트 편집"],
+  ["export", "06", "결과 다운로드"],
 ];
 const phrases = [
   "안녕!",
@@ -536,18 +535,8 @@ function Plan({ next }) {
     regenerate();
   }, []);
   const prepare = async () => {
-    setPlanning(true);
     setMotionError("");
-    try {
-      const response = await fetch(`/api/projects/${window.__projectId}/motions/ai-samples`, { method: "POST" });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.detail || "AI 키프레임 생성에 실패했습니다.");
-      next();
-    } catch (error) {
-      setMotionError(error.message);
-    } finally {
-      setPlanning(false);
-    }
+    next();
   };
   const daily = new Set([
     "인사",
@@ -766,17 +755,52 @@ function Samples({ next }) {
   );
 }
 function Batch({ next }) {
-  const [paused, setPaused] = useState(false),
-    done = 13;
+  const [items, setItems] = useState([]),
+    [running, setRunning] = useState(false),
+    [current, setCurrent] = useState(0),
+    [error, setError] = useState(""),
+    [zip, setZip] = useState("");
+  const stopAfterCurrent = useRef(false);
+  const load = async () => {
+    const response = await fetch(`/api/projects/${window.__projectId}/animated-set`);
+    const data = await response.json();
+    if (response.ok) setItems(data.items || []);
+  };
+  useEffect(() => { load(); }, []);
+  const generate = async () => {
+    setRunning(true); setError(""); stopAfterCurrent.current = false;
+    const complete = new Set(items.map((item) => item.slot_no));
+    for (let slot = 1; slot <= 24; slot += 1) {
+      if (complete.has(slot)) continue;
+      if (stopAfterCurrent.current) break;
+      setCurrent(slot);
+      const response = await fetch(`/api/projects/${window.__projectId}/animated-set/generate-one`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ slot_no: slot }),
+      });
+      const data = await response.json();
+      if (!response.ok) { setError(data.detail || `#${slot} 생성이 중단됐습니다.`); break; }
+      complete.add(slot); await load();
+      await new Promise((resolve) => setTimeout(resolve, 1200));
+    }
+    setCurrent(0); setRunning(false);
+  };
+  const pause = () => { stopAfterCurrent.current = true; };
+  const exportZip = async () => {
+    setError("");
+    const response = await fetch(`/api/projects/${window.__projectId}/animated-set/export`, { method: "POST" });
+    const data = await response.json();
+    if (response.ok) setZip(data.download_url); else setError(data.detail || "ZIP 생성 실패");
+  };
+  const done = items.length;
   return (
     <div className="page">
       <Head
         kicker="GENERATION QUEUE / 05"
-        title="세트가 안전하게 생성되고 있어요"
-        desc="완료된 파일은 즉시 저장되며 앱을 닫아도 이어서 만들 수 있어요."
+        title="24개의 감정을 5프레임씩 만들어요"
+        desc="마스터의 그림체와 캐릭터 수를 잠그고, 표정과 실제 팔다리 동작만 장면별로 바꿉니다."
       >
-        <Status tone={paused ? "amber" : "green"}>
-          {paused ? "일시정지" : "로컬 작업 중"}
+        <Status tone={running ? "blue" : done === 24 ? "green" : "amber"}>
+          {running ? `#${current} 생성 중` : done === 24 ? "24개 완성" : "이어 만들기 가능"}
         </Status>
       </Head>
       <div className="progressbox">
@@ -790,7 +814,7 @@ function Batch({ next }) {
           </span>
           <span>
             <small>예상 남은 시간</small>
-            <b>{paused ? "—" : "18분"}</b>
+            <b>{running ? "항목당 수 분" : "—"}</b>
           </span>
         </div>
         <div className="bar">
@@ -798,28 +822,25 @@ function Batch({ next }) {
         </div>
         <footer>
           <span>
-            ✓ 완료 <b>13</b>
+            ✓ 완료 <b>{done}</b>
           </span>
           <span>
-            ◌ 대기 <b>11</b>
+            ◌ 대기 <b>{24 - done}</b>
           </span>
           <span>
             ◉ 유료 사용 <b>₩0</b>
           </span>
-          <button onClick={() => setPaused(!paused)}>
-            {paused ? <Play /> : <Pause />}
-            {paused ? "계속" : "일시정지"}
-          </button>
+          {running ? <button onClick={pause}><Pause />현재 항목 후 정지</button> : <button onClick={generate}><Play />{done ? "이어서 생성" : "24개 생성 시작"}</button>}
         </footer>
       </div>
       <div className="queue">
         <header>
           <b>작업 큐</b>
-          <small>동시 작업 1개 · 자동 재시도 최대 2회</small>
+          <small>동시 작업 1개 · 무료 할당량 종료 시 자동 중지 · 완료분 저장</small>
         </header>
-        {phrases.slice(11, 17).map((p, i) => {
-          let state =
-            i < 2 ? "done" : i === 2 && !paused ? "running" : "waiting";
+        {phrases.map((p, i) => {
+          const slot=i+1, saved=items.find((item)=>item.slot_no===slot);
+          let state = saved ? "done" : current === slot && running ? "running" : "waiting";
           return (
             <div className="job" key={p}>
               <div>
@@ -827,13 +848,13 @@ function Batch({ next }) {
               </div>
               <span>
                 <b>
-                  #{String(i + 12).padStart(2, "0")} {p}
+                  #{String(slot).padStart(2, "0")} {saved?.phrase || p}
                 </b>
                 <small>
                   {state === "done"
-                    ? "GIF 최적화와 QC 완료"
+                    ? `${saved.frames || 5}개 키프레임 WebP 저장 완료`
                     : state === "running"
-                      ? "키프레임 생성 · 62%"
+                      ? "Gemini가 표정·동작 5프레임 생성 중"
                       : "무료 작업 대기 중"}
                 </small>
               </span>
@@ -857,14 +878,14 @@ function Batch({ next }) {
         <Coins />
         <span>
           <b>무료 우선 모드가 켜져 있어요</b>
-          <small>
-            무료 한도가 끝나면 작업을 멈추고 예상 비용을 먼저 확인합니다.
-          </small>
+          <small>카카오 검색은 최신 상황 키워드 참고에만 사용하고 원작 이미지는 복제·학습하지 않습니다. 무료 한도가 끝나면 자동으로 멈춥니다.</small>
         </span>
-        <button>비용 설정</button>
+        <button onClick={exportZip}>현재 결과 ZIP</button>
       </div>
+      {zip && <a className="download-btn batch-download" href={zip} download><Download /> 움직이는 세트 ZIP 다운로드</a>}
+      {error && <div className="api-error"><AlertTriangle />{error}</div>}
       <Foot text="현재까지의 결과는 모두 안전하게 저장됐습니다.">
-        <button className="primary" onClick={next}>
+        <button className="primary" disabled={!done} onClick={next}>
           세트 편집실 열기
           <ChevronRight />
         </button>
@@ -1096,30 +1117,21 @@ function StaticStudio() {
 function Results() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
-  const labels = { 2: "안녕!", 4: "고마워", 6: "사랑해", 19: "화났어" };
   useEffect(() => {
-    fetch(`/api/projects/${window.__projectId}/motions`)
+    fetch(`/api/projects/${window.__projectId}/animated-set`)
       .then((r) => r.json())
-      .then((d) =>
-        setItems(
-          d.items.filter((x) => x.provider === "codex_imagegen_keyframes"),
-        ),
-      )
+      .then((d) => setItems(d.items || []))
       .finally(() => setLoading(false));
   }, []);
   return (
     <div className="page">
       <Head
-        kicker="STATIC SET STUDIO / 07"
-        title="마스터 한 장으로 이모티콘 24개 만들기"
-        desc="움직임 없이 표정과 몸짓이 다른 정적 PNG 24장을 먼저 완성합니다."
+        kicker="ANIMATED SET / 06"
+        title="완성된 움직이는 이모티콘을 받아보세요"
+        desc="각 항목은 마스터를 기준으로 생성한 5개 동작 프레임의 무손실 WebP입니다."
       >
         <Status tone="green">{items.length}개 완성</Status>
       </Head>
-      <StaticStudio />
-      <div className="result-divider">
-        <span>기존에 만든 움직이는 샘플 4개</span>
-      </div>
       {loading ? (
         <div className="result-empty">
           <RefreshCw className="spin" /> 결과를 불러오는 중
@@ -1131,7 +1143,7 @@ function Results() {
               <div className="result-preview">
                 <img
                   src={x.url}
-                  alt={`${labels[x.slot_no] || x.slot_no} 움직이는 이모티콘`}
+                  alt={`${x.phrase || x.slot_no} 움직이는 이모티콘`}
                 />
               </div>
               <div className="result-info">
@@ -1139,8 +1151,8 @@ function Results() {
                   <small>
                     #{String(x.slot_no).padStart(2, "0")} · ANIMATED WEBP
                   </small>
-                  <b>{labels[x.slot_no] || `이모티콘 ${x.slot_no}`}</b>
-                  <em>표정·팔·몸통이 변하는 키프레임 모션</em>
+                  <b>{x.phrase || `이모티콘 ${x.slot_no}`}</b>
+                  <em>{x.emotion || "감정"} · {x.frames || 5}개 키프레임</em>
                 </span>
                 <a
                   className="download-btn"
@@ -1157,8 +1169,8 @@ function Results() {
       <div className="download-note">
         <Film />
         <span>
-          <b>현재 1차 배치 결과입니다.</b>
-          <small>안녕·고마워·사랑해·화났어 4종이 저장되어 있습니다.</small>
+          <b>{items.length}/24개가 안전하게 저장되어 있습니다.</b>
+          <small>무료 할당량이 끝나도 전체 생성 화면에서 남은 항목부터 이어 만들 수 있습니다.</small>
         </span>
       </div>
     </div>
@@ -1400,7 +1412,7 @@ function App() {
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     idx = STEPS.findIndex((x) => x[0] === step),
-    next = () => setStep(STEPS[Math.min(idx + 1, 6)][0]);
+    next = () => setStep(STEPS[Math.min(idx + 1, STEPS.length - 1)][0]);
   const process = async (file) => {
     setBusy(true);
     setError("");

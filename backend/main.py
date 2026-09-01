@@ -386,13 +386,13 @@ def static_set_prompt(slot:int,phrase:str,motion:str)->str:
       "No duplicate arms, no extra characters, no photorealism, no watermark, no speech bubble, and do not draw any text. "
       "Centered full-body composition on a clean plain white background, production-quality static sticker, square canvas.")
 
-async def gemini_static_image(master:Path,prompt:str)->tuple[bytes,str]:
+async def gemini_static_image(master:Path,prompt:str,aspect_ratio:str="1:1")->tuple[bytes,str]:
     key=os.getenv("GEMINI_API_KEY")
     if not key:raise HTTPException(409,"GEMINI_API_KEY가 없습니다. 키를 연결한 뒤 다시 실행하세요.")
     model=os.getenv("GEMINI_IMAGE_MODEL","gemini-3.1-flash-image-preview")
     if "image" not in model.lower():raise HTTPException(409,"GEMINI_IMAGE_MODEL은 이미지 출력 모델이어야 합니다.")
     encoded=base64.b64encode(master.read_bytes()).decode()
-    body={"contents":[{"role":"user","parts":[{"inlineData":{"mimeType":"image/png","data":encoded}},{"text":prompt}]}],"generationConfig":{"responseModalities":["TEXT","IMAGE"],"imageConfig":{"aspectRatio":"1:1"}}}
+    body={"contents":[{"role":"user","parts":[{"inlineData":{"mimeType":"image/png","data":encoded}},{"text":prompt}]}],"generationConfig":{"responseModalities":["TEXT","IMAGE"],"imageConfig":{"aspectRatio":aspect_ratio}}}
     async with httpx.AsyncClient(timeout=180) as c:
         r=await c.post(f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",headers={"x-goog-api-key":key},json=body)
     if r.status_code in (402,429):raise HTTPException(409,"무료 할당량을 사용할 수 없어 생성하지 않았습니다. 결제나 자동 충전은 실행하지 않습니다.")
@@ -588,9 +588,9 @@ def motion_sheet_prompt(phrase:str,action:str)->str:
     return (
       "The attached image is a strict master reference for a Korean messenger sticker. It contains a specific character composition that may include two joined animal characters. "
       "Do not reinterpret it as a human body. First identify each character, its actual face, ears, paws/arms, legs, tail, prop, and the boundary between the characters. "
-      "Create a horizontal five-frame animation keyframe sheet, five equal square panels from left to right, on pure white. "
+      "Create a horizontal five-frame animation keyframe sheet, five equal panels from left to right, on pure white. "
       "Every panel must contain exactly the same characters and props as the master, with identical line style, face identity, proportions, colors, and character count. "
-      f"The action is '{action}' and the intended message is '{phrase}'. Show a natural sequence: anticipation, start, strongest pose, recovery, loop-ready return. "
+      f"The action is '{action}' and the intended message is '{phrase}'. Show a natural sequence: neutral anticipation, action start, strongest pose, recovery, exact loop-ready return. "
       "Only move limbs that truly exist in the reference. Never invent a human torso, neck, shoulders, trousers, extra arms, duplicate faces, or extra characters. "
       "No text, captions, borders, panel numbers, speech bubbles, shadows, gray texture, watermark, or cropped body parts. Clean professional 2D sticker artwork."
     )
@@ -598,7 +598,7 @@ def motion_sheet_prompt(phrase:str,action:str)->str:
 async def generate_ai_motion_sheet(pid:str,slot_no:int,action:str,phrase:str)->dict[str,Any]:
     p=project(pid);master=Path(p.get("master_path") or p.get("source_path") or "")
     if not master.exists():raise HTTPException(409,"먼저 마스터 이미지를 생성하세요.")
-    raw,model=await gemini_static_image(master,motion_sheet_prompt(phrase,action))
+    raw,model=await gemini_static_image(master,motion_sheet_prompt(phrase,action),"16:9")
     try:sheet=Image.open(io.BytesIO(raw)).convert("RGB")
     except Exception:raise HTTPException(502,"Gemini 키프레임 시트를 읽을 수 없습니다.")
     folder=safe_dir(pid)/"ai_keyframes"/f"slot_{slot_no:02d}";folder.mkdir(parents=True,exist_ok=True)
@@ -609,17 +609,51 @@ async def generate_ai_motion_sheet(pid:str,slot_no:int,action:str,phrase:str)->d
         panel=sheet.crop((left,0,right,sheet.height))
         panel=ImageOps.fit(panel,(740,640),method=Image.Resampling.LANCZOS)
         panel_path=folder/f"{i+1:02d}.png";panel.save(panel_path,"PNG",optimize=True);cleaned.append(panel)
-    sequence=[*cleaned,cleaned[0]];frames=[]
-    for left,right in zip(sequence,sequence[1:]):
-        for n in range(4):frames.append(Image.blend(left,right,n/4))
-    frames.append(cleaned[0]);out=safe_dir(pid)/f"motion_{slot_no:02d}_ai_sheet.webp"
-    frames[0].save(out,save_all=True,append_images=frames[1:],duration=95,loop=0,lossless=False,quality=86,method=4)
+    # Preserve the authored drawings exactly. Cross-fading keyframes creates
+    # double arms/faces and destroys line quality on hand-drawn characters.
+    frames=cleaned;out=safe_dir(pid)/f"motion_{slot_no:02d}_ai_sheet.webp"
+    frames[0].save(out,save_all=True,append_images=frames[1:],duration=[130,105,130,105,170],loop=0,lossless=True,method=6)
     now=datetime.now(timezone.utc).isoformat()
     with db() as con:
         con.execute("INSERT OR REPLACE INTO motion_assets VALUES(?,?,?,?,?)",(pid,slot_no,str(out),"gemini_keyframe_sheet",now))
         con.execute("UPDATE projects SET motion_path=?,status=? WHERE id=?",(str(out),"SAMPLE_REVIEW",pid))
     record_event(pid,"AI_MOTION_SHEET_GENERATED",out,provider="gemini_keyframe_sheet",model=model,external=True,details={"slot_no":slot_no,"action":action,"keyframes":5,"paid_fallback":False})
-    return {"slot_no":slot_no,"motion_url":f"/api/projects/{pid}/files/{out.name}","provider":"gemini_keyframe_sheet","model":model,"paid":False,"cost_krw":0,"articulated_motion":True,"keyframes":5}
+    return {"slot_no":slot_no,"phrase":phrase,"motion_url":f"/api/projects/{pid}/files/{out.name}","provider":"gemini_keyframe_sheet","model":model,"paid":False,"cost_krw":0,"articulated_motion":True,"keyframes":5}
+
+@app.get("/api/projects/{pid}/animated-set")
+def get_animated_set(pid:str):
+    project(pid)
+    with db() as con:
+        rows=con.execute("SELECT m.slot_no,m.path,m.provider,s.phrase,s.emotion,s.motion_prompt FROM motion_assets m LEFT JOIN sticker_items s ON s.project_id=m.project_id AND s.slot_no=m.slot_no WHERE m.project_id=? AND m.provider!='local_python_rig_v1' ORDER BY m.slot_no",(pid,)).fetchall()
+    items=[]
+    for row in rows:
+        path=Path(row["path"])
+        if not path.exists():continue
+        try:frames=getattr(Image.open(path),"n_frames",1)
+        except Exception:frames=0
+        items.append({"slot_no":row["slot_no"],"phrase":row["phrase"] or FALLBACK_PHRASES[row["slot_no"]-1],"emotion":row["emotion"] or FALLBACK_INTENTS[row["slot_no"]-1],"motion_prompt":row["motion_prompt"] or FALLBACK_MOTIONS[row["slot_no"]-1],"provider":row["provider"],"frames":frames,"url":f"/api/projects/{pid}/files/{path.name}?v={int(path.stat().st_mtime)}"})
+    return {"items":items,"completed":len(items),"total":24,"keyframes_per_item":5,"paid_calls_allowed":False,"resume_supported":True}
+
+@app.post("/api/projects/{pid}/animated-set/generate-one")
+async def generate_animated_item(pid:str,body:dict[str,Any]):
+    slot=int(body.get("slot_no",0))
+    if slot not in range(1,25):raise HTTPException(400,"slot_no는 1~24여야 합니다.")
+    with db() as con:planned=con.execute("SELECT phrase,motion_prompt FROM sticker_items WHERE project_id=? AND slot_no=?",(pid,slot)).fetchone()
+    phrase=planned["phrase"] if planned else FALLBACK_PHRASES[slot-1]
+    action=planned["motion_prompt"] if planned else FALLBACK_MOTIONS[slot-1]
+    return await generate_ai_motion_sheet(pid,slot,action,phrase)
+
+@app.post("/api/projects/{pid}/animated-set/export")
+def export_animated_set(pid:str):
+    p=project(pid)
+    with db() as con:rows=con.execute("SELECT slot_no,path FROM motion_assets WHERE project_id=? AND provider!='local_python_rig_v1' ORDER BY slot_no",(pid,)).fetchall()
+    rows=[row for row in rows if Path(row["path"]).exists()]
+    if not rows:raise HTTPException(409,"먼저 움직이는 이모티콘을 생성하세요.")
+    out=safe_dir(pid)/"moticon_animated_set.zip"
+    with zipfile.ZipFile(out,"w",zipfile.ZIP_DEFLATED) as archive:
+        for row in rows:archive.write(row["path"],f"animated/{row['slot_no']:02d}.webp")
+        archive.writestr("README.txt",f"MotiCon animated set\nProject: {p['name']}\nCompleted: {len(rows)}/24\nKeyframes per sticker: 5\nPaid fallback: disabled\n")
+    return {"download_url":f"/api/projects/{pid}/files/{out.name}","completed":len(rows),"total":24}
 
 @app.post("/api/projects/{pid}/motions/ai-samples")
 async def ai_motion_samples(pid:str):

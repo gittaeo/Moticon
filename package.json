@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "scripts": { "dev": "vite --host 0.0.0.0", "backend": "uv run --with-requirements backend/requirements.txt python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000", "key:kakao": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/set-kakao-key.ps1", "build": "vite build", "preview": "vite preview --host 0.0.0.0" },
+  "scripts": { "dev": "vite --host 0.0.0.0", "backend": ".venv/Scripts/python.exe -m uvicorn backend.main:app --host 127.0.0.1 --port 8000", "key:kakao": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/set-kakao-key.ps1", "build": "vite build", "preview": "vite preview --host 0.0.0.0" },
   "dependencies": { "@vitejs/plugin-react": "latest", "vite": "latest", "react": "latest", "react-dom": "latest", "lucide-react": "latest" },
   "devDependencies": {}
 }
