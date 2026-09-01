@@ -592,6 +592,8 @@ async def rig_samples(pid:str):
 
 def motion_sheet_prompt(phrase:str,action:str)->str:
     return (
+      "RIGHTS AND PRIVACY NOTICE: The user who submitted the attached master image states that they own or control all necessary copyrights and usage rights. "
+      "Use the image only to fulfill this single generation request. Do not disclose, publish, redistribute, reuse, or use the image or output for training. "
       "The attached image is a strict master reference for a Korean messenger sticker. It contains a specific character composition that may include two joined animal characters. "
       "Do not reinterpret it as a human body. First identify each character, its actual face, ears, paws/arms, legs, tail, prop, and the boundary between the characters. "
       "Create a horizontal five-frame animation keyframe sheet, five equal panels from left to right, on pure white. "

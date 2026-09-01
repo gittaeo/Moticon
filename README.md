@@ -53,6 +53,12 @@ Google AI Studio 키는 `.env`의 `GEMINI_API_KEY`에 설정합니다. 카카오
 npm.cmd run key:kakao
 ```
 
+Cloudflare Workers AI는 Dashboard의 **AI → Workers AI → Use REST API**에서 Account ID와 `Workers AI Read/Edit` 권한 토큰을 복사한 뒤 다음 명령으로 연결합니다. 토큰은 터미널 화면에 표시되지 않으며, 이미지 생성 없이 인증만 확인합니다.
+
+```powershell
+npm.cmd run key:cloudflare
+```
+
 `.env`는 Git에 포함되지 않습니다. 유료 사용 방지 설정은 다음 값을 유지하세요.
 
 ```dotenv
@@ -108,6 +114,7 @@ npm.cmd run dev        # Vite 개발 서버
 npm.cmd run backend    # FastAPI 서버와 Python 의존성 실행
 npm.cmd run build      # 프로덕션 프런트엔드 빌드
 npm.cmd run key:kakao  # 카카오 REST API 키 안전 저장
+npm.cmd run key:cloudflare # Workers AI Account ID·Token 검증 및 안전 저장
 ```
 
 ## 라이선스
@@ -125,6 +132,7 @@ npm.cmd run key:kakao  # 카카오 REST API 키 안전 저장
 - 생성 중지, 완료 항목 저장, 이어 만들기 및 전체 ZIP 내보내기 지원
 - Gemini API 키를 제작 페이지에서 연결하고 상태를 확인할 수 있는 UI 추가
 - Gemini 키 연결 시 원격 모델 목록을 기다리지 않고 즉시 로컬 저장하며, UI 타임아웃과 버튼 상태 복구를 보장하도록 개선
+- Cloudflare Workers AI Account ID·Token을 숨김 입력하고 인증한 뒤 무료 FLUX.2 Klein 4B 설정으로 저장하는 터미널 명령 추가
 - 무료 모델만 사용하고 유료 모델 전환·자동 결제를 차단하는 정책 적용
 - 카카오 트렌드 메타데이터를 기획 프롬프트에 참고 신호로 반영하되 외부 이모티콘 원본은 복제하지 않도록 제한
 - 최종 제품 목표를 자연어 요구에 따라 표정·자세·동작·문구와 개별 프레임을 다시 수정할 수 있는 대화형 생성 스튜디오로 확정
