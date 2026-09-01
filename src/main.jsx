@@ -234,10 +234,10 @@ function Shell({ step, setStep, children }) {
   );
 }
 function Home({ start, openProject }) {
-  const [trends, setTrends] = useState([]), [trendState, setTrendState] = useState("loading");
+  const [trends, setTrends] = useState([]), [trendState, setTrendState] = useState("loading"), [trendProvider, setTrendProvider] = useState("");
   useEffect(() => {
     apiFetch("/api/trends/emoticons").then(apiJson).then((data) => {
-      setTrends(data.items || []); setTrendState("ready");
+      setTrends(data.items || []); setTrendProvider(data.provider || ""); setTrendState("ready");
     }).catch(() => setTrendState("unavailable"));
   }, []);
   const previews = [
@@ -293,7 +293,7 @@ function Home({ start, openProject }) {
       <section className="trend-section">
         <header>
           <div><span>KAKAO SEARCH · DAILY</span><h2>오늘 새로 발견한 이모티콘</h2><p>카카오 Daum 검색 API의 최신 결과입니다. 이미지는 저장하지 않고 원문으로 연결합니다.</p></div>
-          <em>{trendState === "ready" ? `매일 갱신 · ${trends.length}개` : trendState === "loading" ? "불러오는 중" : "API 연결 확인 필요"}</em>
+          <em>{trendState === "ready" ? (trendProvider === "kakao_image_search" ? `Kakao 최신 검색 · ${trends.length}개` : `기획 샘플 · ${trends.length}개`) : trendState === "loading" ? "불러오는 중" : "API 연결 확인 필요"}</em>
         </header>
         {trendState === "ready" && trends.length > 0 ? (
           <div className="trend-grid">
@@ -330,7 +330,7 @@ function Source({ process, busy, error }) {
       <Head
         kicker="SOURCE / 01"
         title="좋은 캐릭터는 좋은 사진에서 시작해요"
-        desc="정면이 잘 보이는 JPG 한 장을 올려주세요. 추가 사진은 나중에도 보강할 수 있어요."
+        desc="정면이 잘 보이는 JPG·PNG·WebP 한 장을 올려주세요. 추가 사진은 나중에도 보강할 수 있어요."
       />
       <div className="source">
         <div className="drop" onClick={() => ref.current.click()}>
@@ -338,7 +338,7 @@ function Source({ process, busy, error }) {
             ref={ref}
             hidden
             type="file"
-            accept="image/jpeg"
+            accept="image/jpeg,image/png,image/webp"
             onChange={(e) => setFile(e.target.files[0])}
           />
           <div>
