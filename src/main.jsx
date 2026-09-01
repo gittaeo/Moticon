@@ -32,6 +32,9 @@ import {
 import "./styles.css";
 import "./backend.css";
 import "./premium.css";
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
+const apiFetch = (input, init) =>
+  fetch(typeof input === "string" && input.startsWith("/api") ? `${API_BASE}${input}` : input, init);
 const STEPS = [
   ["source", "01", "사진"],
   ["master", "02", "마스터"],
@@ -221,7 +224,7 @@ function Shell({ step, setStep, children }) {
 function Home({ start, openProject }) {
   const [trends, setTrends] = useState([]), [trendState, setTrendState] = useState("loading");
   useEffect(() => {
-    fetch("/api/trends/emoticons").then(apiJson).then((data) => {
+    apiFetch("/api/trends/emoticons").then(apiJson).then((data) => {
       setTrends(data.items || []); setTrendState("ready");
     }).catch(() => setTrendState("unavailable"));
   }, []);
@@ -421,7 +424,7 @@ function Master({ next, masterUrl }) {
     ];
   if (masterUrl) window.__masterUrl = masterUrl;
   const choose = async () => {
-    let r = await fetch(`/api/projects/${window.__projectId}/masters/select`, {
+    let r = await apiFetch(`/api/projects/${window.__projectId}/masters/select`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ variant: keys[sel] }),
@@ -521,7 +524,7 @@ function Plan({ next }) {
     if (!window.__projectId) return;
     setPlanning(true);
     try {
-      let r = await fetch(
+      let r = await apiFetch(
         `/api/projects/${window.__projectId}/plans/generate`,
         { method: "POST" },
       );
@@ -652,7 +655,7 @@ function Samples({ next }) {
   useEffect(() => {
     const load = () =>
       window.__projectId &&
-      fetch(`/api/projects/${window.__projectId}/motions`)
+      apiFetch(`/api/projects/${window.__projectId}/motions`)
         .then((r) => r.json())
         .then((d) =>
           setClips(Object.fromEntries(d.items.map((x) => [x.slot_no, x.url]))),
@@ -766,13 +769,13 @@ function Batch({ next }) {
     [savingKey, setSavingKey] = useState(false);
   const stopAfterCurrent = useRef(false);
   const load = async () => {
-    const response = await fetch(`/api/projects/${window.__projectId}/animated-set`);
+    const response = await apiFetch(`/api/projects/${window.__projectId}/animated-set`);
     const data = await response.json();
     if (response.ok) setItems(data.items || []);
   };
   useEffect(() => {
     load();
-    fetch("/api/providers/status").then((r) => r.json()).then((data) => {
+    apiFetch("/api/providers/status").then((r) => r.json()).then((data) => {
       const gemini = (data.providers || []).find((item) => item.id === "gemini");
       setProviderReady(Boolean(gemini?.configured));
     }).catch(() => setProviderReady(false));
@@ -781,7 +784,7 @@ function Batch({ next }) {
     if (!apiKey.trim()) return;
     setSavingKey(true); setKeyStatus("");
     try {
-      const response = await fetch("/api/providers/gemini/key", {
+      const response = await apiFetch("/api/providers/gemini/key", {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ api_key: apiKey.trim() }),
         signal: AbortSignal.timeout(10000),
       });
@@ -803,7 +806,7 @@ function Batch({ next }) {
       if (complete.has(slot)) continue;
       if (stopAfterCurrent.current) break;
       setCurrent(slot);
-      const response = await fetch(`/api/projects/${window.__projectId}/animated-set/generate-one`, {
+      const response = await apiFetch(`/api/projects/${window.__projectId}/animated-set/generate-one`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ slot_no: slot }),
       });
       const data = await response.json();
@@ -816,7 +819,7 @@ function Batch({ next }) {
   const pause = () => { stopAfterCurrent.current = true; };
   const exportZip = async () => {
     setError("");
-    const response = await fetch(`/api/projects/${window.__projectId}/animated-set/export`, { method: "POST" });
+    const response = await apiFetch(`/api/projects/${window.__projectId}/animated-set/export`, { method: "POST" });
     const data = await response.json();
     if (response.ok) setZip(data.download_url); else setError(data.detail || "ZIP 생성 실패");
   };
@@ -1016,7 +1019,7 @@ function StaticStudio() {
   const [keyStatus, setKeyStatus] = useState("");
   const [savingKey, setSavingKey] = useState(false);
   const load = () =>
-    fetch(`/api/projects/${window.__projectId}/static-set`)
+    apiFetch(`/api/projects/${window.__projectId}/static-set`)
       .then((r) => r.json())
       .then((d) => setItems(d.items || []));
   useEffect(() => {
@@ -1029,7 +1032,7 @@ function StaticStudio() {
     for (let slot = 1; slot <= 24; slot += 1) {
       if (done.has(slot)) continue;
       setCurrent(slot);
-      const r = await fetch(
+      const r = await apiFetch(
         `/api/projects/${window.__projectId}/static-set/generate-one`,
         {
           method: "POST",
@@ -1048,7 +1051,7 @@ function StaticStudio() {
     setRunning(false);
   };
   const exportZip = async () => {
-    const r = await fetch(
+    const r = await apiFetch(
       `/api/projects/${window.__projectId}/static-set/export`,
       { method: "POST" },
     );
@@ -1061,7 +1064,7 @@ function StaticStudio() {
     setSavingKey(true);
     setKeyStatus("");
     try {
-      const r = await fetch("/api/providers/gemini/key", {
+      const r = await apiFetch("/api/providers/gemini/key", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ api_key: apiKey.trim() }),
@@ -1162,7 +1165,7 @@ function Results() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
-    fetch(`/api/projects/${window.__projectId}/animated-set`)
+    apiFetch(`/api/projects/${window.__projectId}/animated-set`)
       .then((r) => r.json())
       .then((d) => setItems(d.items || []))
       .finally(() => setLoading(false));
@@ -1317,7 +1320,7 @@ function GrokDock() {
       setOpen(true);
       return;
     }
-    let r = await fetch(`/api/projects/${window.__projectId}/handoffs/grok`);
+    let r = await apiFetch(`/api/projects/${window.__projectId}/handoffs/grok`);
     setData(await r.json());
     setOpen(true);
   };
@@ -1329,7 +1332,7 @@ function GrokDock() {
     if (!file) return;
     let f = new FormData();
     f.append("file", file);
-    let r = await fetch(
+    let r = await apiFetch(
       `/api/projects/${window.__projectId}/handoffs/grok/import?kind=${tab}`,
       { method: "POST", body: f },
     );
@@ -1461,7 +1464,7 @@ function App() {
     setBusy(true);
     setError("");
     try {
-      let p = await apiJson(await fetch("/api/projects", {
+      let p = await apiJson(await apiFetch("/api/projects", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: file.name.replace(/\.[^.]+$/, "") }),
@@ -1469,12 +1472,12 @@ function App() {
       window.__projectId = p.id;
       let form = new FormData();
       form.append("file", file);
-      let up = await fetch(`/api/projects/${p.id}/assets`, {
+      let up = await apiFetch(`/api/projects/${p.id}/assets`, {
         method: "POST",
         body: form,
       });
       await apiJson(up);
-      let ma = await fetch(`/api/projects/${p.id}/masters/generate`, {
+      let ma = await apiFetch(`/api/projects/${p.id}/masters/generate`, {
         method: "POST",
       });
       let data = await apiJson(ma);
