@@ -81,11 +81,9 @@ async function handleApi(request, env) {
   const masterGenerate = path.match(/^\/api\/projects\/([^/]+)\/masters\/generate$/);
   if (request.method === "POST" && masterGenerate) {
     const project = await readProject(env, masterGenerate[1]);
-    if (!project?.source_key) return error("먼저 사진을 업로드하세요.", 404);
+    if (!project) return error("프로젝트를 찾을 수 없습니다.", 404);
     const variants = {};
     for (const name of ["original", "white", "peach", "mint", "lilac", "butter"]) variants[name] = fileUrl(project.id, `master_${name}.png`);
-    const source = await env.PROJECTS.get(project.source_key, "arrayBuffer");
-    for (const name of Object.keys(variants)) await env.PROJECTS.put(`${project.id}/master_${name}.png`, source);
     project.master_key = `${project.id}/master_white.png`;
     await writeProject(env, project);
     return json({ master_url: variants.white, variant_urls: variants, provider: "cloudflare-r2-safe-copy" });
@@ -122,7 +120,7 @@ async function handleApi(request, env) {
     const body = await request.json().catch(() => ({}));
     const slot = Number(body.slot_no);
     if (!Number.isInteger(slot) || slot < 1 || slot > 24) return error("slot_no는 1~24여야 합니다.");
-    const source = await env.PROJECTS.get(project.master_key, "arrayBuffer");
+    const source = await env.PROJECTS.get(project.master_key || `${project.id}/source.png`, "arrayBuffer") || await env.PROJECTS.get(`${project.id}/source.png`, "arrayBuffer");
     if (!source) return error("마스터 파일을 찾을 수 없습니다.", 404);
     const prompt = `The user owns all rights to the supplied reference image. Keep it private to this request and do not disclose or reuse it. Image 0 is the locked master character. Create one polished Korean messenger emoticon on a clean white background. Preserve exactly the character count, species, facial identity, line thickness, proportions, markings, and color palette. Do not add or remove limbs, characters, or props. Scene: ${MOTIONS[slot - 1]}. Emotion: ${EMOTIONS[slot - 1]}. Leave clear space for the Korean caption \"${PHRASES[slot - 1]}\" but do not render any letters. Centered full-body composition, crisp dark line art, commercial sticker quality.`;
     try {
@@ -142,7 +140,8 @@ async function handleApi(request, env) {
   }
   const fileMatch = path.match(/^\/api\/projects\/([^/]+)\/files\/([^/]+)$/);
   if (request.method === "GET" && fileMatch) {
-    const object = await env.PROJECTS.get(`${fileMatch[1]}/${fileMatch[2]}`, "arrayBuffer");
+    let object = await env.PROJECTS.get(`${fileMatch[1]}/${fileMatch[2]}`, "arrayBuffer");
+    if (!object && fileMatch[2].startsWith("master_")) object = await env.PROJECTS.get(`${fileMatch[1]}/source.png`, "arrayBuffer");
     if (!object) return error("파일을 찾을 수 없습니다.", 404);
     return new Response(object, { headers: { "content-type": "image/png", "cache-control": "public, max-age=31536000, immutable" } });
   }
